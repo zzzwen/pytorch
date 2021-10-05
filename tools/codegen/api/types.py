@@ -2,7 +2,7 @@ from tools.codegen.model import (Argument, FunctionSchema, NativeFunction,
                                  BackendIndex,
                                  SelfArgument, TensorOptionsArguments, BaseTy)
 from dataclasses import dataclass
-from typing import Optional, Union, Sequence, TypeVar, List, Set, Dict
+from typing import Optional, Union, Sequence, TypeVar, List, Set, Dict, Callable
 from enum import Enum
 
 _T = TypeVar('_T')
@@ -90,6 +90,16 @@ class BaseCType:
     def remove_const_ref(self) -> 'CType':
         return self
 
+    # See Note [translation from C++ reference to value types]
+    def ref_to_value_type(self) -> 'CType':
+        if self.type == intArrayRefT:
+            return VectorCType(BaseCType(intT))
+        if self.type == optionalScalarRefT:
+            return OptionalCType(BaseCType(scalarT))
+        if self.type == optionalTensorRefT:
+            return OptionalCType(BaseCType(tensorT))
+        return self
+
 @dataclass(frozen=True)
 class ConstRefCType:
     elem: 'CType'
@@ -104,6 +114,9 @@ class ConstRefCType:
 
     def remove_const_ref(self) -> 'CType':
         return self.elem.remove_const_ref()
+
+    def ref_to_value_type(self) -> 'CType':
+        return self.elem.ref_to_value_type()
 
 @dataclass(frozen=True)
 class MutRefCType:
@@ -120,6 +133,9 @@ class MutRefCType:
     def remove_const_ref(self) -> 'CType':
         return self.elem.remove_const_ref()
 
+    def ref_to_value_type(self) -> 'CType':
+        return self.elem.ref_to_value_type()
+
 @dataclass(frozen=True)
 class OptionalCType:
     elem: 'CType'
@@ -133,6 +149,9 @@ class OptionalCType:
 
     def remove_const_ref(self) -> 'CType':
         return OptionalCType(self.elem.remove_const_ref())
+
+    def ref_to_value_type(self) -> 'CType':
+        return OptionalCType(self.elem.ref_to_value_type())
 
 @dataclass(frozen=True)
 class ListCType:
@@ -148,6 +167,9 @@ class ListCType:
     def remove_const_ref(self) -> 'CType':
         return ListCType(self.elem.remove_const_ref())
 
+    def ref_to_value_type(self) -> 'CType':
+        return ListCType(self.elem.ref_to_value_type())
+
 @dataclass(frozen=True)
 class ArrayRefCType:
     elem: 'CType'
@@ -162,6 +184,9 @@ class ArrayRefCType:
     def remove_const_ref(self) -> 'CType':
         return ArrayRefCType(self.elem.remove_const_ref())
 
+    def ref_to_value_type(self) -> 'CType':
+        return VectorCType(self.elem.ref_to_value_type())
+
 @dataclass(frozen=True)
 class VectorCType:
     elem: 'CType'
@@ -175,6 +200,9 @@ class VectorCType:
 
     def remove_const_ref(self) -> 'CType':
         return VectorCType(self.elem.remove_const_ref())
+
+    def ref_to_value_type(self) -> 'CType':
+        return VectorCType(self.elem.ref_to_value_type())
 
 @dataclass(frozen=True)
 class ArrayCType:
@@ -191,6 +219,9 @@ class ArrayCType:
     def remove_const_ref(self) -> 'CType':
         return ArrayCType(self.elem.remove_const_ref(), self.size)
 
+    def ref_to_value_type(self) -> 'CType':
+        return ArrayCType(self.elem.ref_to_value_type(), self.size)
+
 @dataclass(frozen=True)
 class TupleCType:
     elems: List['CType']
@@ -204,6 +235,9 @@ class TupleCType:
 
     def remove_const_ref(self) -> 'CType':
         return TupleCType([e.remove_const_ref() for e in self.elems])
+
+    def ref_to_value_type(self) -> 'CType':
+        return TupleCType([e.ref_to_value_type() for e in self.elems])
 
 CType = Union[
     BaseCType,
