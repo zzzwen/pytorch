@@ -311,6 +311,51 @@ class LSTM(torch.nn.Module):
                                      **factory_kwargs))
         self.layers = torch.nn.ModuleList(layers)
 
+        # Create variables to access the weights and biases.
+        # Note: In quantized version, these variables will be converted into functions
+        #       that unpack the quantized weights/biases
+        self._set_weight_bias_variables()
+
+    def _set_weight_bias_variables(self):
+        r"""Creates member variables to access the weights similar to the nn.LSTM
+
+        Effectively, calling this method performs
+        ```
+        self.weight_ih_l0 = self.layers[0].layer_fw.cell.igates.weight
+        self.weight_ih_l1 = self.layers[1].layer_fw.cell.igates.weight
+        ...
+        self.weight_hh_l0 = self.layers[0].layer_fw.cell.hgates.weight
+        self.weight_hh_l1 = self.layers[1].layer_fw.cell.hgates.weight
+        ...
+        ```
+        Similarly, the variables for bias, as well as the backwards path is
+        created. Note that `self.weight_ih_l0` is NOT a copy of the tensors,
+        but a reference. However, if the original tensor changes, the refernce
+        will be broken.
+        """
+        name_str = r"{var_name}_{var_type}h_l{var_layer}"
+        var_names = ['weight'] + ['bias'] if self.bias else []
+        for idx, layer in enumerate(self.layers):
+            for var_name in var_names:
+                for var_type in ['i', 'h']:
+                    attr_name = name_str.format(var_name=var_name,
+                                                var_type=var_type,
+                                                var_layer=idx)
+                    var = getattr(layer.layer_fw.cell, f'{var_type}gates')
+                    var = getattr(var, var_name)
+                    if not isinstance(var, torch.Tensor):
+                        # We need to delete the tensor because in quantized they are packed
+                        delattr(self, attr_name)
+                    setattr(self, attr_name, var)
+                    if self.bidirectional:
+                        attr_name += '_reverse'
+                        var = getattr(layer.layer_bw.cell, f'{var_type}gates')
+                        var = getattr(var, var_name)
+                        if not isinstance(var, torch.Tensor):
+                            delattr(self, attr_name)
+                        setattr(self, attr_name, var)
+
+
     def forward(self, x: Tensor, hidden: Optional[Tuple[Tensor, Tensor]] = None):
         if self.batch_first:
             x = x.transpose(0, 1)
@@ -376,9 +421,12 @@ class LSTM(torch.nn.Module):
                                                          batch_first=False)
         observed.eval()
         observed = torch.quantization.prepare(observed, inplace=True)
+        observed._set_weight_bias_variables()
         return observed
 
     @classmethod
     def from_observed(cls, other):
-        return torch.quantization.convert(other, inplace=False,
-                                          remove_qconfig=True)
+        converted = torch.quantization.convert(other, inplace=False,
+                                               remove_qconfig=True)
+        converted._set_weight_bias_variables()
+        return converted
