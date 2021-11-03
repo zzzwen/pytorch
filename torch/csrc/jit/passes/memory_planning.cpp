@@ -1,4 +1,5 @@
 #include <torch/csrc/jit/passes/memory_planning.h>
+#include <torch/csrc/jit/passes/memory_planning/greedy_by_breadth.h>
 #include <torch/csrc/jit/passes/memory_planning/greedy_by_size.h>
 #include <torch/csrc/jit/passes/memory_planning/linear_scan.h>
 
@@ -428,6 +429,10 @@ planMemory(const std::shared_ptr<Graph>& graph, Strategy strat, bool frozen) {
     }
     case Strategy::GREEDY_BY_LONGEST_AND_SIZE_WITH_FIRST_GAP: {
       allocations = greedyByLongestAndSizeWithFirstGap(lm, managed_live_ranges);
+      break;
+    }
+    case Strategy::GREEDY_BY_BREADTH: {
+      allocations = greedyByOperatorBreadth(lm, managed_values);
       break;
     }
     default:
