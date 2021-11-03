@@ -128,6 +128,60 @@ RegisterOperators reg(
          },
          aliasAnalysisSpecialCase()),
      Operator(
+         "prim::AllocateSlab() -> Storage",
+         [](const Node* node) -> Operation {
+           int64_t total_size = node->i(attr::total_size);
+           auto device_type =
+               static_cast<DeviceType>(node->i(attr::device_type));
+           return [total_size, device_type](Stack* stack) {
+             auto allocator = GetAllocator(device_type);
+             auto slab = c10::Storage(
+                 c10::Storage::use_byte_size_t(),
+                 total_size,
+                 allocator,
+                 /*resizable=*/false);
+             push(stack, std::move(slab));
+           };
+         },
+         aliasAnalysisFromSchema()),
+     Operator(
+         // TODO: changing this node to be schematized and to use
+         // aliasAnalysisFromSchema doesn't work and produces zero tensors
+         // eventually for some reason
+         prim::AllocateTensor, // prim::AllocateTensor(Storage slab) -> Tensor
+         [](const Node* node) -> Operation {
+           int64_t size = node->i(attr::size);
+           int64_t offset = node->i(attr::offset);
+           auto type = node->ty(attr::profiled_type)->expect<TensorType>();
+           return [offset, size, type](Stack* stack) {
+             c10::Storage slab;
+             pop(stack, slab);
+             uint8_t* start = static_cast<uint8_t*>(slab.data());
+             void* src = static_cast<void*>(start + offset);
+             at::Tensor temp_tensor =
+                 at::for_blob(src, *type->sizes().concrete_sizes())
+                     .strides(*type->strides().concrete_sizes())
+                     .options(at::TensorOptions(*type->device())
+                                  .dtype(*type->scalarType()))
+                     .deleter(nullptr)
+                     .make_tensor();
+             temp_tensor.storage().set_nbytes(size);
+             push(stack, std::move(temp_tensor));
+           };
+         },
+         aliasAnalysisSpecialCase()),
+     Operator(
+         "prim::ReleaseSlab(Storage slab) -> ()",
+         [](Stack* stack) {
+           // we "use" slab by feeding it to ReleaseSlab so that it lives as
+           // long as the end of the last tensor, but we don't actually do
+           // anything with it here because StorageImpl will take care of
+           // freeing the memory at the end of this scope. Conceivably we could
+           // perform some checks etc here.
+           auto slab = pop(stack).toStorage();
+         },
+         aliasAnalysisFromSchema()),
+     Operator(
          prim::ChunkSizes,
          [](const Node* node) -> Operation {
            int64_t raw_dim = node->i(attr::dim);
