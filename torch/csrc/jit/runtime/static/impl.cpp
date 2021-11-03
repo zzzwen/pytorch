@@ -179,15 +179,22 @@ std::string dumpLivenessMap(const LivenessMap& liveness_map) {
   oss << "}";
   return oss.str();
 }
+} // namespace
 
 //  The algorithm does a traversal of the execution graph
 //  while keeping track of the live values.
-LivenessMap GetLivenessMap(
+std::pair<LivenessMap, FastMap<const Value*, LiveRange>> GetLiveness(
     const std::shared_ptr<torch::jit::Graph>& graph,
     const ValueGroup& value_group,
     AliasDb& db) {
   // map a Value to a set of Values that overlap live-ranges with the Value's
   FastMap<const Value*, FastSet<const Value*>> liveness_map;
+
+  // for collecting live ranges as a function of topo order
+  size_t idx = 0;
+  FastMap<const Node*, size_t> nodes_to_idx_in_topo_order;
+  FastMap<const Value*, size_t> value_creation_topo_idx;
+  FastMap<const Value*, FastSet<size_t>> value_use_topo_idxs;
 
   // map Values to its creation order in graph (Note: only traverse top-level
   // nodes such that nodes under control-flows are represented by top-level
@@ -202,6 +209,7 @@ LivenessMap GetLivenessMap(
           v, values_in_creation_order.size());
       values_in_creation_order.emplace_back(v);
     }
+    nodes_to_idx_in_topo_order[node] = idx++;
   }
 
   // presence of a Value in live_values_use_chain means the Value alive
@@ -235,6 +243,7 @@ LivenessMap GetLivenessMap(
         const auto* node = u.user;
         live_values_use_chain[v].insert(node);
         live_nodes_def_chain[node].insert(v);
+        value_use_topo_idxs[v].insert(nodes_to_idx_in_topo_order[node]);
       }
     }
 
@@ -260,6 +269,7 @@ LivenessMap GetLivenessMap(
     for (auto* aliased_v : refined_aliases) {
       GRAPH_DEBUG("aliased_v: %", aliased_v->debugName());
       add_live_value_fn(aliased_v);
+      value_creation_topo_idx[aliased_v] = value_creation_topo_idx[v];
     }
   };
 
@@ -280,6 +290,7 @@ LivenessMap GetLivenessMap(
     for (const auto* v : node->outputs()) {
       if (!value_group.isAlwaysAlive(v)) {
         add_live_value_fn(v);
+        value_creation_topo_idx[v] = nodes_to_idx_in_topo_order[node];
       }
     }
 
@@ -336,8 +347,20 @@ LivenessMap GetLivenessMap(
     insert_all_pairs_in_liveness_map(outputs);
   };
 
-  return liveness_map;
-};
+  FastMap<const Value*, LiveRange> live_ranges;
+  for (const auto& item : value_use_topo_idxs) {
+    auto value = item.first;
+    auto idxs = item.second;
+
+    live_ranges[value] = {
+        value_creation_topo_idx[value],
+        *std::max_element(begin(idxs), end(idxs))};
+  }
+
+  return std::make_pair(liveness_map, live_ranges);
+}
+
+namespace {
 
 // Collect the set of Values that are candidates for memory planning:
 //   - Values that are used in in-place operators (i.e., _out variants), and
@@ -743,7 +766,7 @@ StaticModule::StaticModule(
   GRAPH_DEBUG(value_group_.toString());
 
   if (opts_.optimize_memory) {
-    auto lm = GetLivenessMap(graph_, value_group_, alias_db);
+    auto lm = GetLiveness(graph_, value_group_, alias_db).first;
     auto values = GetMemoryPlanningCandidates(graph_, node_has_out_variant);
     value_to_same_storage_values_ =
         GenerateSameStorageValues(lm, value_group_, values, alias_db);

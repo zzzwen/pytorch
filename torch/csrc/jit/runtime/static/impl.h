@@ -49,7 +49,7 @@ TORCH_API std::string dumpValueSet(
 //     inputs.
 // Values that dont't show up in output_aliases or external_aliases are created
 // and consumed within the graph.
-class ValueGroup {
+class TORCH_API ValueGroup {
  public:
   explicit ValueGroup() = default;
   void init(const std::shared_ptr<torch::jit::Graph>& graph, AliasDb& db);
@@ -524,5 +524,36 @@ class TORCH_API ProcessedNode {
   const char* op_name_;
 };
 
+using LivenessMap = FastMap<const Value*, FastSet<const Value*>>;
+
+typedef struct LiveRange {
+  size_t begin;
+  size_t end;
+} LiveRange;
+
+inline std::ostream& operator<<(std::ostream& str, LiveRange lvr) {
+  return str << "[" << lvr.begin << ", " << lvr.end << "]";
+}
+
+inline bool operator==(const LiveRange& lhs, const LiveRange& rhs) {
+  return lhs.begin == rhs.begin && lhs.end == rhs.end;
+}
+
+TORCH_API std::pair<LivenessMap, FastMap<const Value*, LiveRange>> GetLiveness(
+    const std::shared_ptr<torch::jit::Graph>& graph,
+    const ValueGroup& value_group,
+    AliasDb& db);
+
 } // namespace jit
 } // namespace torch
+
+namespace std {
+template <>
+struct hash<torch::jit::LiveRange> {
+  size_t operator()(torch::jit::LiveRange const& range) const {
+    // shift so that single point ranges don't have hash zero (xor cancels)
+    return c10::get_hash(range.begin, range.end);
+  }
+};
+
+} // namespace std
