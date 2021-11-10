@@ -286,7 +286,45 @@ std::vector<c10::ScalarType> compute_dtype_log_sigmoid_backward(const at::Tensor
   // Based on definition of aten/src/ATen/native/Activation.cpp::log_sigmoid_backward_cpu*.
   return {grad_output.scalar_type()};
 }
+std::vector<std::vector<int64_t>> compute_shape_split(const at::Tensor & self, int64_t split_size, int64_t dim) {
+  std::vector<std::vector<int64_t>> sizes;
+  dim = at::maybe_wrap_dim(dim, self);
+  TORCH_CHECK(split_size > 0);
+  if (split_size > self.size(dim)) {
+    split_size = self.size(dim);
+  }
+  int64_t rem = self.size(dim);
+  while(rem > 0) {
+    sizes.emplace_back(self.sizes().begin(), self.sizes().end());
+    sizes.back()[dim] = rem > split_size ? split_size : rem;
+    rem -= split_size;
+  }
+  return sizes;
+}
+std::vector<c10::ScalarType> compute_dtype_split(const at::Tensor & self, int64_t split_size, int64_t dim){
+  dim = at::maybe_wrap_dim(dim, self);
+  size_t num_split = self.size(dim) / split_size;
+  if (self.size(dim) % split_size > 0) {
+    num_split += 1 ;
+  }
+  return std::vector<c10::ScalarType>(num_split, self.scalar_type());
+}
 
+std::vector<std::vector<int64_t>> compute_shape_split_with_sizes(const at::Tensor & self, at::IntArrayRef split_sizes, int64_t dim) {
+  std::vector<std::vector<int64_t>> sizes;
+  dim = at::maybe_wrap_dim(dim, self);
+  size_t total_size = 0;
+  for (auto sz:  split_sizes) {
+    total_size += sz;
+    sizes.emplace_back(self.sizes().begin(), self.sizes().end());
+    sizes.back()[dim] = sz;
+  }
+  TORCH_CHECK(total_size == self.size(dim));
+  return sizes;
+}
+std::vector<c10::ScalarType> compute_dtype_split_with_sizes(const at::Tensor & self, at::IntArrayRef split_sizes, int64_t dim) {
+  return std::vector<c10::ScalarType>(split_sizes.size(), self.scalar_type());
+}
 } // namespace ops
 } // namespace ir
 } // namespace torch_lazy_tensors

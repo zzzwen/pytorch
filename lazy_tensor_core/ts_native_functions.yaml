@@ -60,6 +60,8 @@ full_codegen:
   - softplus
   - softplus_backward
   - sort
+  - split.Tensor
+  - split_with_sizes
   - sqrt
   - sum
   - sum.dim_IntList

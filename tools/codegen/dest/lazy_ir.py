@@ -2,7 +2,7 @@ from typing import List, Union
 from dataclasses import dataclass
 from tools.codegen.context import method_with_native_function, with_native_function_and_index
 from tools.codegen.model import (BackendIndex, NativeFunction,
-                                 NativeFunctionsGroup)
+                                 NativeFunctionsGroup, ListType)
 from tools.codegen.api.types import (BaseCType, OptionalCType, NamedCType,
                                      VectorCType, kernel_signature)
 import tools.codegen.api.dispatcher as dispatcher
@@ -181,11 +181,21 @@ class GenLazyNativeFuncDefinition:
         bridge_str = f"""auto result = bridge::AtenFromLtcTensor(lazy_{first_tensor.name}.CreateFrom(node,
             out_dtype.front()));"""
         if returns_length > 1:
+            # Technically, multiple outputs defined by native schema, so process the individual lazy tensors and
+            # build a tuple
             bridge_str = f"""std::vector<LazyTensor> lazy_tensors;
         for (int i = 0; i < {returns_length}; i++) {{
             lazy_tensors.push_back(lazy_{first_tensor.name}.CreateFrom(torch::lazy::Value(node, i), out_dtype[i]));
         }}
         auto result = bridge::TupleAtenFromLtcTensors<{returns_length}>(lazy_tensors);"""
+        elif returns_length == 1 and isinstance(schema.returns[0].type, ListType):
+            # Although there is just one output from the schema, it is a vector type; Still need to
+            # process the individual lazy tensors and build a vector
+            bridge_str = f"""std::vector<at::Tensor> tensors;
+        for (int i = 0; i < {returns_length}; i++) {{
+            tensors.push_back(bridge::AtenFromLtcTensor(lazy_{first_tensor.name}.CreateFrom(torch::lazy::Value(node, i), out_dtype[i])));
+        }}
+        auto result = tensors;"""
         if schema.name.name.inplace:
             assert returns_length == 1, "We assumed there was no such case where an op is an in-place variant " \
                                         "and has tuple outputs."
