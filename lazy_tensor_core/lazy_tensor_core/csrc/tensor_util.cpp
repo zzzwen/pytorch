@@ -14,6 +14,7 @@
 #include "lazy_tensor_core/csrc/compiler/backend_impl_interface.h"
 #include "lazy_tensor_core/csrc/device.h"
 #include "lazy_tensor_core/csrc/helpers.h"
+#include "lazy_tensor_core/csrc/python_util.h"
 #include "lazy_tensors/computation_client/multi_wait.h"
 #include "lazy_tensors/computation_client/sys_util.h"
 #include "lazy_tensors/computation_client/thread_pool.h"
@@ -397,6 +398,28 @@ bool IsSpecialScalar(const at::Scalar& value) {
     return scalar_value == 0.0 || std::fabs(scalar_value) == 1.0;
   }
   return false;
+}
+
+std::set<torch::lazy::hash_t> seen_hashes;
+thread_local bool debug_recompile = false;
+thread_local size_t steps = 0;
+const size_t kConvergeSteps = 2; // Expect graph to stabilize in this many steps
+TORCH_API void EnterDebugLazyRecompileRegion(){
+  debug_recompile = true;
+}
+TORCH_API void ExitDebugLazyRecompileRegion(){
+  debug_recompile = false;
+  steps += 1;
+}
+TORCH_API void MaybeDebugLazyRecompile(torch::lazy::hash_t dag_hash){
+  if (debug_recompile){
+    if (steps < kConvergeSteps && seen_hashes.count(dag_hash) == 0){
+      seen_hashes.insert(dag_hash);
+    } else if (seen_hashes.count(dag_hash) == 0) {
+      auto frame_info = GetPythonFrames();
+      LOG(FATAL) << "Lazy trace diverges from\n" << frame_info;
+    }
+  }
 }
 
 }  // namespace torch_lazy_tensors

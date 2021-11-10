@@ -1,4 +1,5 @@
 #include "lazy_tensor_core/csrc/ts_backend/TsNode.h"
+#include "lazy_tensor_core/csrc/tensor_util.h"
 
 #include "lazy_tensors/computation_client/sys_util.h"
 #include "third_party/computation_client/cache.h"
@@ -56,6 +57,7 @@ TsNode::TsNode(OpKind op, OpList operands, std::vector<lazy_tensors::Shape>&& sh
            OperandHashes(operands,
                          torch::lazy::HashCombine(op.hash(), hash_seed))),
       shapes_(shapes) {
+  MaybeDebugLazyRecompile(hash());
   for (auto& operand : operands) {
     // Ideally, optional operands should be filtered by the leaf node classes,
     // but it's just much easier to do it here.
@@ -73,12 +75,15 @@ TsNode::TsNode(OpKind op, OpList operands,
                const std::function<lazy_tensors::Shape()>& shape_fn,
                size_t num_outputs, torch::lazy::hash_t hash_seed)
     : TsNode(op, operands, std::vector<lazy_tensors::Shape>{}, num_outputs, hash_seed) {
+  MaybeDebugLazyRecompile(hash());
   shapes_.push_back(GetOpShape(shape_fn));
 }
 
 TsNode::TsNode(OpKind op, OpList operands, size_t num_outputs,
                torch::lazy::hash_t hash_seed)
-    : TsNode(op, operands, std::vector<lazy_tensors::Shape>{}, num_outputs, hash_seed) {}
+    : TsNode(op, operands, std::vector<lazy_tensors::Shape>{}, num_outputs, hash_seed) {
+  MaybeDebugLazyRecompile(hash());
+}
 
 void TsNode::SetShapeDeferred(
     const std::function<lazy_tensors::Shape()>& shape_fn) {
@@ -89,6 +94,7 @@ TsNode::TsNode(OpKind op, lazy_tensors::Shape shape, size_t num_outputs,
                torch::lazy::hash_t hash_seed)
     : Node(op, num_outputs, GetOpHash(op, shape, hash_seed))
 {
+  MaybeDebugLazyRecompile(hash());
   shapes_.push_back(std::move(shape));
 }
 

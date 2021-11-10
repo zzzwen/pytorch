@@ -8,6 +8,7 @@
 #include "lazy_tensors/shape.h"
 #include "lazy_tensors/span.h"
 #include "torch/csrc/autograd/variable.h"
+#include "torch/csrc/lazy/core/hash.h"
 
 namespace torch_lazy_tensors {
 
@@ -55,5 +56,9 @@ std::vector<at::ScalarType> CreateDTypeFromMetaTensors(const std::tuple<TupleTyp
 // values which are within a given set, are routed to constant scalars if this
 // API returns true.
 bool IsSpecialScalar(const at::Scalar& value);
+
+TORCH_API void EnterDebugLazyRecompileRegion();
+TORCH_API void ExitDebugLazyRecompileRegion();
+TORCH_API void MaybeDebugLazyRecompile(torch::lazy::hash_t dag_hash);
 
 }  // namespace torch_lazy_tensors

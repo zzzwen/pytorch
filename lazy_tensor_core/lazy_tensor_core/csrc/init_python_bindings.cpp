@@ -36,6 +36,7 @@
 #include "torch/csrc/autograd/variable.h"
 #include "torch/csrc/jit/python/pybind.h"
 #include "torch/csrc/utils/cuda_lazy_init.h"
+
 namespace torch_lazy_tensors {
 namespace {
 
@@ -652,6 +653,8 @@ void InitLtcModuleBindings(py::module m) {
   //   return GetMemoryInfo(device);
   // });
   m.def("_ltc_init_ts_backend", []() { compiler::InitTorchScriptBackend(); });
+  m.def("_ltc_enter_debug_region",[]() { torch_lazy_tensors::EnterDebugLazyRecompileRegion(); });
+  m.def("_ltc_exit_debug_region",[]() {  torch_lazy_tensors::ExitDebugLazyRecompileRegion(); });
 }
 
 }  // namespace

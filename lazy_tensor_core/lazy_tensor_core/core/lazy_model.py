@@ -28,6 +28,16 @@ _TORCH_DIST_LOCK = threading.Lock()
 _DEVICE_CONTEXTS = dict()
 _DEVICE_CONTEXTS_LOCK = threading.Lock()
 
+class LazyDebugRegion(object):
+    def __init__(self):
+        pass
+
+    def __enter__(self):
+        return lazy_tensor_core._LAZYC._ltc_enter_debug_region()
+
+    def __exit__(self, type, value, traceback):
+        return lazy_tensor_core._LAZYC._ltc_exit_debug_region()
+
 
 class DeviceContext(object):
     __slot__ = ['device']
