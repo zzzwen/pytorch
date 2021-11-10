@@ -12,6 +12,7 @@ namespace {
 
 std::vector<at::Tensor> _to_eager(at::TensorList tensors,
                                   c10::DeviceType device_type) {
+  VLOG(4) << "_to_eager_";
   switch (device_type) {
     case at::kCPU: {
       return at::_to_cpu(tensors);
@@ -33,6 +34,7 @@ std::vector<at::Tensor> _to_eager(at::TensorList tensors,
 
 std::vector<at::Tensor> to_eager(const at::TensorList& tensors,
                                  c10::DeviceType device_type) {
+  VLOG(4) << "to_eager_";
   // We can't just call _to_eager() on the entire list of Tensors because it
   // will break on undefined tensors. Separate out undefined tensors first.
   std::vector<at::Tensor> eager_tensors(tensors.size());
@@ -93,6 +95,7 @@ c10::optional<c10::Device> compute_target_device(std::vector<at::Tensor>& t_args
 
 void eager_fallback(const c10::OperatorHandle& op, torch::jit::Stack* stack,
                     c10::DeviceType device_type) {
+  VLOG(4) << "eager_fallback!!! " << op.operator_name();
   auto& schema_args = op.schema().arguments();
   const auto num_arguments = schema_args.size();
   auto arguments = torch::jit::last(stack, num_arguments);

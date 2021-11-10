@@ -59,6 +59,6 @@ bool IsSpecialScalar(const at::Scalar& value);
 
 TORCH_API void EnterDebugLazyRecompileRegion();
 TORCH_API void ExitDebugLazyRecompileRegion();
-TORCH_API void MaybeDebugLazyRecompile(torch::lazy::hash_t dag_hash);
+TORCH_API void MaybeDebugLazyRecompile(torch::lazy::hash_t dag_hash, std::string node_tostring);
 
 }  // namespace torch_lazy_tensors

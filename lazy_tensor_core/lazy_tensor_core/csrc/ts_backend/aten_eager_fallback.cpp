@@ -14,6 +14,7 @@ static std::unordered_map<std::string, ::lazy_tensors::metrics::Counter*>
 
 void ltc_eager_fallback(const c10::OperatorHandle& op,
                         torch::jit::Stack* stack) {
+  VLOG(4) << "ltc_eager_fallback " << op.operator_name();
   LTC_FN_TRACK(3);
   const auto name = c10::toString(op.operator_name());
 

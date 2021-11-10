@@ -54,6 +54,8 @@ class TsNode : public torch::lazy::Node {
 
   virtual ~TsNode() = default;
 
+  void debug_hook();
+  
   lazy_tensors::Shape GetOpShape(
       const std::function<lazy_tensors::Shape()>& shape_fn) const;
 

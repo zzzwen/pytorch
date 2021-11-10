@@ -57,7 +57,6 @@ TsNode::TsNode(OpKind op, OpList operands, std::vector<lazy_tensors::Shape>&& sh
            OperandHashes(operands,
                          torch::lazy::HashCombine(op.hash(), hash_seed))),
       shapes_(shapes) {
-  MaybeDebugLazyRecompile(hash());
   for (auto& operand : operands) {
     // Ideally, optional operands should be filtered by the leaf node classes,
     // but it's just much easier to do it here.
@@ -69,20 +68,21 @@ TsNode::TsNode(OpKind op, OpList operands, std::vector<lazy_tensors::Shape>&& sh
 
     AddOperand(operand.node, operand.index);
   }
+  debug_hook();
 }
 
 TsNode::TsNode(OpKind op, OpList operands,
                const std::function<lazy_tensors::Shape()>& shape_fn,
                size_t num_outputs, torch::lazy::hash_t hash_seed)
     : TsNode(op, operands, std::vector<lazy_tensors::Shape>{}, num_outputs, hash_seed) {
-  MaybeDebugLazyRecompile(hash());
   shapes_.push_back(GetOpShape(shape_fn));
+  debug_hook();
 }
 
 TsNode::TsNode(OpKind op, OpList operands, size_t num_outputs,
                torch::lazy::hash_t hash_seed)
     : TsNode(op, operands, std::vector<lazy_tensors::Shape>{}, num_outputs, hash_seed) {
-  MaybeDebugLazyRecompile(hash());
+  debug_hook();
 }
 
 void TsNode::SetShapeDeferred(
@@ -94,8 +94,8 @@ TsNode::TsNode(OpKind op, lazy_tensors::Shape shape, size_t num_outputs,
                torch::lazy::hash_t hash_seed)
     : Node(op, num_outputs, GetOpHash(op, shape, hash_seed))
 {
-  MaybeDebugLazyRecompile(hash());
   shapes_.push_back(std::move(shape));
+  debug_hook();
 }
 
 const lazy_tensors::Shape& TsNode::shape(size_t output_index) const {
@@ -111,6 +111,10 @@ ShapeCache* GetShapeCache() {
       lazy_tensors::sys_util::GetEnvInt("LTC_IR_SHAPE_CACHE_SIZE", 4096);
   static ShapeCache* cache = new ShapeCache(shape_cache_size);
   return cache;
+}
+
+void TsNode::debug_hook() {
+  MaybeDebugLazyRecompile(hash(), ToString());
 }
 
 lazy_tensors::Shape TsNode::GetOpShape(

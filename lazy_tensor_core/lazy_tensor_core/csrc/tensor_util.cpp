@@ -403,7 +403,7 @@ bool IsSpecialScalar(const at::Scalar& value) {
 std::set<torch::lazy::hash_t> seen_hashes;
 thread_local bool debug_recompile = false;
 thread_local size_t steps = 0;
-const size_t kConvergeSteps = 2; // Expect graph to stabilize in this many steps
+const size_t kConvergeSteps = 6; // Expect graph to stabilize in this many steps
 TORCH_API void EnterDebugLazyRecompileRegion(){
   debug_recompile = true;
 }
@@ -411,13 +411,13 @@ TORCH_API void ExitDebugLazyRecompileRegion(){
   debug_recompile = false;
   steps += 1;
 }
-TORCH_API void MaybeDebugLazyRecompile(torch::lazy::hash_t dag_hash){
+TORCH_API void MaybeDebugLazyRecompile(torch::lazy::hash_t dag_hash, std::string node_tostring){
   if (debug_recompile){
     if (steps < kConvergeSteps && seen_hashes.count(dag_hash) == 0){
       seen_hashes.insert(dag_hash);
     } else if (seen_hashes.count(dag_hash) == 0) {
       auto frame_info = GetPythonFrames();
-      LOG(FATAL) << "Lazy trace diverges from\n" << frame_info;
+      LOG(FATAL) << "Lazy trace diverges from\n" << node_tostring << "\n" << frame_info;
     }
   }
 }
