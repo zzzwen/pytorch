@@ -827,11 +827,12 @@ void LazyGraphExecutor::BuildInputOutputAliases(
   }
   LTC_VALUE_METRIC("InputOutputAliasCount", alias_map.size());
 }
-
+void lazy_graph_sync(){}
 std::shared_ptr<LazyGraphExecutor::Async>
 LazyGraphExecutor::SyncTensorsGraphInternal(std::vector<LazyTensor>* tensors,
                                             c10::ArrayRef<std::string> devices,
                                             const SyncTensorsConfig& config) {
+  RECORD_FUNCTION("lazy_graph_sync", {});
   SyncTensorCollection coll = CollectSyncTensors(*tensors, config);
   if (coll.indices.empty()) {
     return nullptr;
