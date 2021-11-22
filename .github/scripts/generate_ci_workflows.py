@@ -623,6 +623,15 @@ IOS_WORKFLOWS = [
             labels={LABEL_CIFLOW_IOS, LABEL_CIFLOW_MACOS},
         ),
     ),
+    CIWorkflow(
+        arch="macos",
+        build_environment="ios-12-5-1-x86-64-metal",
+        test_runner_type=MACOS_TEST_RUNNER_10_15,
+        exclude_test=True,
+        ciflow_config=CIFlowConfig(
+            labels={LABEL_CIFLOW_IOS, LABEL_CIFLOW_MACOS},
+        ),
+    ),
 ]
 
 MACOS_WORKFLOWS = [
