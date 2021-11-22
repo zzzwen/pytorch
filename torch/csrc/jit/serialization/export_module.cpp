@@ -74,6 +74,31 @@ ExportModuleExtraFilesHook& GetExtraFilesHook() {
   return func;
 }
 
+std::vector<IValue> convertInstructionsToIValue(const std::vector<Instruction>& inst) {
+  std::vector<IValue> instructions;
+  instructions.reserve(inst.size());
+  for (Instruction ins : inst) {
+    instructions.emplace_back(to_tuple({toString(ins.op), ins.X, ins.N}));
+  }
+  return instructions;
+}
+
+std::vector<IValue> convertOperatorsToIValue(const std::vector<c10::OperatorName>& op_names, const std::vector<int>& operator_input_sizes) {
+  std::vector<IValue> operators;
+  operators.reserve(op_names.size());
+  for (int i = 0; i < op_names.size(); ++i) {
+    const auto& opname = op_names[i];
+    const int size = operator_input_sizes[i];
+    if (BytecodeEmitMode::is_default_value_for_unspecified_arg_enabled()) {
+      operators.emplace_back(to_tuple({opname.name, opname.overload_name}));
+    } else {
+      operators.emplace_back(
+          to_tuple({opname.name, opname.overload_name, size}));
+    }
+  }
+  return operators;
+}
+
 std::pair<IValue, IValue> getFunctionTuple(
     const CompilationUnit& compilation_unit,
     const mobile::Function& func,
@@ -82,26 +107,9 @@ std::pair<IValue, IValue> getFunctionTuple(
   const std::shared_ptr<mobile::Code> mobile_code_ptr = func.get_code();
 
   // instructions
-  std::vector<IValue> instructions;
-  instructions.reserve(mobile_code_ptr->instructions_.size());
-  for (Instruction ins : mobile_code_ptr->instructions_) {
-    instructions.emplace_back(to_tuple({toString(ins.op), ins.X, ins.N}));
-  }
-
+  std::vector<IValue> instructions = convertInstructionsToIValue(mobile_code_ptr->instructions_);
   // operators
-  std::vector<IValue> operators;
-  operators.reserve(mobile_code_ptr->op_names_.size());
-  for (int i = 0; i < mobile_code_ptr->op_names_.size(); ++i) {
-    const auto& opname = mobile_code_ptr->op_names_[i];
-    const int size = mobile_code_ptr->operator_input_sizes_[i];
-    if (BytecodeEmitMode::is_default_value_for_unspecified_arg_enabled()) {
-      operators.emplace_back(to_tuple({opname.name, opname.overload_name}));
-    } else {
-      operators.emplace_back(
-          to_tuple({opname.name, opname.overload_name, size}));
-    }
-  }
-
+  std::vector<IValue> operators = convertOperatorsToIValue(mobile_code_ptr->op_names_, mobile_code_ptr->operator_input_sizes_);
   // types
   std::vector<IValue> types;
   types.reserve(mobile_code_ptr->types_.size());
