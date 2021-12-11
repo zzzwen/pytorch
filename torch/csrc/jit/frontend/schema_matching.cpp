@@ -645,8 +645,8 @@ Value* emitBuiltinCall(
   for (const std::shared_ptr<Operator>& op : variants) {
     bool found_upgrader = false;
     auto op_name = op->schema().operator_name().name +
-        (op->schema().overload_name() != "")
-        : "." + op->schema().overload_name() : "";
+        ((op->schema().overload_name() != "")
+        ? "." + op->schema().overload_name() : "");
     if (graph_version.has_value()) {
       auto version_entry = kOperatorVersionMap.find(op_name);
       if (version_entry != kOperatorVersionMap.end()) {
