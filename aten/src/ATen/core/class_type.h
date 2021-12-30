@@ -106,6 +106,7 @@ struct TORCH_API ClassType : public NamedType {
   }
 
   const std::vector<torch::jit::Function*>& methods() const;
+  const std::vector<torch::jit::Function*>& overloaded_methods() const;
 
   TypePtr findAttribute(const std::string& name) const {
     size_t pos = 0;
@@ -373,6 +374,21 @@ struct TORCH_API ClassType : public NamedType {
   torch::jit::Function& getHook(const std::string& name) const;
   bool hasMethod(const std::string& name) const;
 
+  // adds overloaded function to the ClassType.
+  // this API must be used only for overloaded methods.
+  void addOverloadedMethod(torch::jit::Function* method);
+
+  // finds and returns all mangled names of overloaded function
+  // with given name. If no there is no such overloaded function,
+  // returns nullptr.
+  c10::optional<std::vector<std::string>> findOverloadedMethod(
+      const std::string& name) const;
+
+  // given the mangled name, return the function pointer
+  // corresponding that name.
+  torch::jit::Function* getMangledOverloadedMethod(
+      const std::string& name) const;
+
   torch::jit::Function* findStaticMethod(const std::string& name) const;
   void addStaticMethod(torch::jit::Function* method);
 
@@ -440,6 +456,21 @@ struct TORCH_API ClassType : public NamedType {
   // List of methods associated with this class.
   std::vector<torch::jit::Function*> methods_;
   std::vector<torch::jit::Function*> staticmethods_;
+
+  // List of overloaded methods with this class.
+  // We keep them seperate from methods_ to not break
+  // previous logic.
+  std::vector<torch::jit::Function*> overloaded_methods_;
+
+  // Map that maps from a non-unique name to unique mangled overload names for
+  // overloaded functions only. The reason we don't store function pointers here
+  // is because getMangledOverloadedName would have harder time finding a method
+  // as it has to demangle.
+  std::unordered_map<std::string, std::vector<std::string>> overloaded_name_map;
+
+  // Map of mangled name to the index of the actual overloaded function pointer
+  // index in overloaded_methods_.
+  std::unordered_map<std::string, int> mangled_to_function_;
 
   // List of hooks to be run before/after forward.
   std::vector<torch::jit::Function*> forward_hooks_;

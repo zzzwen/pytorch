@@ -417,7 +417,7 @@ class class_ : public ::torch::detail::class_base {
     // those are held by the CompilationUnit), so we need a proxy for
     // that behavior here.
     auto method_val = method.get();
-    classTypePtr->addMethod(method_val);
+    classTypePtr->addOverloadedMethod(method.get());
     registerCustomClassMethod(std::move(method));
     return method_val;
   }
