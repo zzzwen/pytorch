@@ -1,4 +1,5 @@
 #pragma once
+#include <ATen/core/ivalue.h>
 #include <ATen/core/Tensor.h>
 #include <string>
 #include <vector>
@@ -58,7 +59,7 @@ static inline const char* toString(AttributeKind kind) {
   return names[int(kind)];
 }
 
-struct AttributeValue {
+struct TORCH_API AttributeValue {
   AttributeValue(Symbol name) : name(name) {}
   using Ptr = std::unique_ptr<AttributeValue>;
   Symbol name;
@@ -68,7 +69,7 @@ struct AttributeValue {
 };
 
 template <typename T, AttributeKind Kind>
-struct ScalarAttributeValue : public AttributeValue {
+struct TORCH_API ScalarAttributeValue : public AttributeValue {
   using ConstructorType = T;
   using ValueType = T;
   ScalarAttributeValue(Symbol name, ConstructorType value_)
@@ -88,7 +89,7 @@ struct ScalarAttributeValue : public AttributeValue {
 };
 
 template <typename T, AttributeKind Kind>
-struct VectorAttributeValue : public AttributeValue {
+struct TORCH_API VectorAttributeValue : public AttributeValue {
   using ConstructorType = std::vector<T>;
   using ValueType = std::vector<T>;
   // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
@@ -108,6 +109,29 @@ struct VectorAttributeValue : public AttributeValue {
  private:
   ValueType value_;
 };
+
+// Don't forget to update the .cpp file if you update this list. (We
+// can't use some kind of
+// TORCH_FOR_EACH_USED_ATTRIBUTE_VALUE_TEMPLATE_INSTANCE macro to make
+// this nicer because the preprocessor thinks the commas in template
+// argument list are separating macro arguments.)
+extern template struct ScalarAttributeValue<
+    c10::complex<double>,
+    AttributeKind::c>;
+extern template struct VectorAttributeValue<
+    c10::complex<double>,
+    AttributeKind::cs>;
+extern template struct ScalarAttributeValue<double, AttributeKind::f>;
+extern template struct VectorAttributeValue<double, AttributeKind::fs>;
+extern template struct ScalarAttributeValue<int64_t, AttributeKind::i>;
+extern template struct VectorAttributeValue<int64_t, AttributeKind::is>;
+extern template struct ScalarAttributeValue<std::string, AttributeKind::s>;
+extern template struct VectorAttributeValue<std::string, AttributeKind::ss>;
+extern template struct ScalarAttributeValue<at::Tensor, AttributeKind::t>;
+extern template struct VectorAttributeValue<at::Tensor, AttributeKind::ts>;
+extern template struct ScalarAttributeValue<c10::TypePtr, AttributeKind::ty>;
+extern template struct VectorAttributeValue<c10::TypePtr, AttributeKind::tys>;
+extern template struct ScalarAttributeValue<at::IValue, AttributeKind::ival>;
 
 using ComplexAttr =
     ScalarAttributeValue<c10::complex<double>, AttributeKind::c>;
