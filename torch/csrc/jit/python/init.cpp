@@ -502,7 +502,7 @@ void initJITBindings(PyObject* module) {
       .def(
           "_jit_pass_canonicalize",
           [](const std::shared_ptr<Graph>& g) { return Canonicalize(g); })
-      .def("_jit_pass_lint", LintGraph)
+      .def("_jit_pass_lint", lintGraph)
       .def(
           "_jit_pass_complete_shape_analysis",
           [](const std::shared_ptr<Graph>& graph,
@@ -598,7 +598,7 @@ void initJITBindings(PyObject* module) {
       .def(
           "_jit_pass_constant_propagation_immutable_types",
           [](std::shared_ptr<Graph>& g) {
-            return ConstantPropagationImmutableTypes(g);
+            return constantPropagationImmutableTypes(g);
           })
       .def(
           "_jit_pass_constant_propagation",
