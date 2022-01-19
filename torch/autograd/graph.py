@@ -86,7 +86,8 @@ class save_on_cpu(saved_tensors_hooks):
 
     Args:
         pin_memory (bool): If ``True`` tensors will be saved to CPU pinned memory
-                           during packing and copied to GPU asynchronously during unpacking.
+                           via asynchronous transfer to CPU during packing and
+                           copied to GPU asynchronously during unpacking.
                            Defaults to ``False``.
                            Also see :ref:`cuda-memory-pinning`.
 
@@ -112,21 +113,24 @@ class save_on_cpu(saved_tensors_hooks):
         >>> # all intermediary tensors are released (deleted) after the call to backward
 
     """
+    # NOTE: when pin_memory=True, save_on_cpu does asynchronous copy when moving
+    # tensor to CPU and GPU. In general, this means that it is the user's job
+    # to do necessary synchronizations, however in this case it is impossible
+    # for the end user to ever have access to this tensor saved by autograd. Any
+    # modification to this feature should ensure that this remain the case.
     def __init__(self, pin_memory=False):
         def pack_to_cpu(tensor):
-            if not pin_memory:
-                return (tensor.device, tensor.cpu())
-
-            packed = torch.empty(
-                tensor.size(),
-                dtype=tensor.dtype,
-                layout=tensor.layout,
-                pin_memory=(torch.cuda.is_available() and not tensor.is_sparse))
-            packed.copy_(tensor)
+            packed = tensor.to("cpu", non_blocking=pin_memory)
+            # NOTE: do NOT try to use the "packed" tensor or modify it in
+            # any way, as this will cause application synchronization issues
+            # when pin_memory=True!
             return (tensor.device, packed)
 
         def unpack_from_cpu(packed):
             device, tensor = packed
+            # NOTE: do NOT try to use the "packed" tensor or modify it in
+            # any way, as this will cause application synchronization issues
+            # when pin_memory=True!
             return tensor.to(device, non_blocking=pin_memory)
 
         super().__init__(pack_to_cpu, unpack_from_cpu)
