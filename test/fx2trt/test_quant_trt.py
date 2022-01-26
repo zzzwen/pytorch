@@ -30,6 +30,11 @@ import torch.nn.functional as F
 import torch.nn as nn
 import torch.nn.quantized._reference as nnqr
 
+from torch.fx.experimental.fx2trt import LowerSetting
+from torch.fx.experimental.fx2trt import Lowerer
+from torch.fx.experimental.fx2trt.lower import LowerTrtInterpreter
+import torch.fx.experimental.fx_acc.acc_tracer as acc_tracer
+
 from torch.testing._internal.common_cuda import TEST_CUDA
 from torch.testing._internal.common_utils import run_tests
 from torch.testing._internal.common_quantization import NodeSpec as ns
@@ -742,6 +747,45 @@ class TestQuantizeFxTRTOps(QuantizationTestCase):
             ns.call_method("dequantize"): 3,
         }
         self.checkGraphModuleNodes(m.standalone, expected_node_occurrence=standalone_node_occurrence)
+
+    def test_repro(self):
+        model = torch.load("/home/jerryzh/local/tmp/_run_on_acc_1.pt")
+        model_inputs_cuda = torch.load("/home/jerryzh/local/tmp/_run_on_acc_1_input.pt")
+        model_inputs_cuda = [i.cpu() for i in model_inputs_cuda]
+        batch_size = 2048
+        fp16_mode = False
+        int8_mode = True
+        lower_setting = LowerSetting(
+            max_batch_size=batch_size,
+            explicit_batch_dimension=True,
+            explicit_precision=True,
+            fp16_mode=fp16_mode,
+            int8_mode=int8_mode,
+            strict_type_constraints=True,
+        )
+        print("model:", model)
+        trt_interpreter = LowerTrtInterpreter.create(lower_setting)
+        model = acc_tracer.trace(model, model_inputs_cuda)
+        interp_res = trt_interpreter(
+            model, model_inputs_cuda, "split_module"
+        )
+
+        model_trt_mod = TRTModule(
+            engine=interp_res.engine,
+            input_names=interp_res.input_names,
+            output_names=interp_res.output_names,
+            cuda_graph_batch_size=batch_size,
+        )
+
+        # feed_lower = Lowerer.create(lower_setting)
+        # pyre-fixme[6]: Incompatible parameter type [6]
+        # model_trt_mod = feed_lower(model, model_inputs_cuda)
+
+        model_inputs_cuda = [i.cuda() for i in model_inputs_cuda]
+        model = cast(torch.nn.Module, model)
+        model.cuda()
+        model(*model_inputs_cuda)
+        model_trt_mod(*model_inputs_cuda)
 
 if __name__ == "__main__":
     run_tests()
