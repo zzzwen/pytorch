@@ -78,7 +78,7 @@ class PackageImporter(Importer):
         else:
             self.filename = "<binary>"
             self.zip_reader = torch._C.PyTorchFileReader(file_or_buffer)
-
+        self.external_registry = {}
         self.root = _PackageNode(None)
         self.modules = {}
         self.extern_modules = self._read_extern()
@@ -165,7 +165,19 @@ class PackageImporter(Importer):
         """
         data = self.load_binary(package, resource)
         return data.decode(encoding, errors)
+    def load_tensor(self, dtype, size, key, location, storage_context):
+        name = f"{key}.storage"
 
+        if storage_context.has_storage(name):
+            storage = storage_context.get_storage(name, dtype).storage()
+        else:
+            tensor = self.zip_reader.get_storage_from_record(
+                ".data/" + name, size, dtype
+            )
+            if isinstance(self.zip_reader, torch._C.PyTorchFileReader):
+                storage_context.add_storage(name, tensor)
+            storage = tensor.storage()
+        return self.restore_location(storage, location)
     def load_pickle(self, package: str, resource: str, map_location=None) -> Any:
         """Unpickles the resource from the package, loading any modules that are needed to construct the objects
         using :meth:`import_module`.
@@ -180,6 +192,7 @@ class PackageImporter(Importer):
         """
         pickle_file = self._zipfile_path(package, resource)
         restore_location = _get_restore_location(map_location)
+        self.restore_location = _get_restore_location(map_location)
         loaded_storages = {}
         loaded_reduces = {}
         storage_context = torch._C.DeserializationStorageContext()

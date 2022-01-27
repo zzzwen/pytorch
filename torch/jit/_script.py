@@ -347,11 +347,13 @@ def unpackage_script_module(importer: PackageImporter, script_module_id: str) ->
             "Loading ScriptObjects from a PackageImporter created from a "
             "directory is not supported. Use a package archive file instead."
         )
+    if 'storage_context' not in importer.external_registry:
+        importer.external_registry['storage_context'] = torch._C.DeserializationStorageContext()
     cu = torch._C.CompilationUnit()
     cpp_module = torch._C._import_ir_module_from_package(
         cu,
         importer.zip_reader,
-        importer.storage_context,
+        importer.external_registry['storage_context'],
         validate_map_location(importer.last_map_location),
         script_module_id,
     )
@@ -535,8 +537,13 @@ if _enabled:
             Returns method to load the ScriptModule from a ``torch.package.PackageImporter``'s
             Pickler's ``persistent_load`` function.
             """
+            if 'script_module_serializer' not in exporter.external_registry:
+                exporter.external_registry['script_module_serializer'] = torch._C.ScriptModuleSerializer(exporter.zip_file)
+            if 'write_torchscript_files' not in exporter.closing_functions:
+                exporter.closing_functions['write_torchscript_files'] = lambda exporter: exporter.external_registry['script_module_serializer'].write_files()
+            script_module_serializer = exporter.external_registry['script_module_serializer']
             script_module_id = exporter.get_unique_id()
-            exporter.script_module_serializer.serialize(self._c, int(script_module_id))
+            script_module_serializer.serialize(self._c, int(script_module_id))
             return (unpackage_script_module, (script_module_id,))
 
     class RecursiveScriptModule(ScriptModule):
