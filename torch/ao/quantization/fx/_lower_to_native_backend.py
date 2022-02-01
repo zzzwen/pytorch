@@ -5,7 +5,8 @@ from .graph_module import QuantizedGraphModule
 from .quantized_fusion_patterns_and_replacements import get_fbgemm_patterns_and_replacements
 from .match_utils import is_match
 from .match_utils import MatchAllNode
-from ..utils import _parent_name, check_node
+from ..utils import _parent_name
+from .node_check_utils import is_flow_supported_ops
 from typing import Dict, Type
 
 # Mapping from reference module class to the replacement quantized module class for lowering
@@ -88,11 +89,12 @@ def special_pattern_replacement(model: QuantizedGraphModule) -> QuantizedGraphMo
             # get output scale/zero_point/dtype from the quantize node
             ref_node, scale_node, zero_point_node, dtype = q_node.args
 
-            is_call_function, is_call_method, is_call_module = check_node(ref_node, modules)
-            if is_call_module or is_call_function or is_call_method:
+            is_supported_call_function, is_supported_call_method, \
+                is_supported_call_module = is_flow_supported_ops(ref_node, modules)
+            if is_supported_call_function or is_supported_call_method or is_supported_call_module:
                 dq_node = ref_node.args[0]
                 if dq_node.target == 'dequantize':
-                    if is_call_module:
+                    if is_supported_call_module:
                         ref_module = modules[ref_node.target]
                         # change this pattern to use the corresponding quantized module
                         # replace reference module with quantized module
