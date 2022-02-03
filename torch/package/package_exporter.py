@@ -18,13 +18,11 @@ from typing import (
     Sequence,
     Set,
     Union,
-    cast,
     DefaultDict,
+    Type,
 )
 
 import torch
-from torch.serialization import location_tag, normalize_storage_type
-from torch.types import Storage
 from torch.utils.hooks import RemovableHandle
 
 from ._digraph import DiGraph
@@ -35,6 +33,8 @@ from ._stdlib import is_stdlib_module
 from .find_file_dependencies import find_files_source_depends_on
 from .glob_group import GlobGroup, GlobPattern
 from .importer import Importer, OrderedImporter, sys_importer
+from ._zip_file_torchscript import TorchScriptPackageZipFileWriter
+from ._zip_file import PackageZipFileWriter
 import inspect
 
 _gate_torchscript_serialization = True
@@ -182,6 +182,7 @@ class PackageExporter:
         self,
         f: Union[str, Path, BinaryIO],
         importer: Union[Importer, Sequence[Importer]] = sys_importer,
+        zip_file_reader_type: Type[PackageZipFileWriter] = TorchScriptPackageZipFileWriter
     ):
         """
         Create an exporter.
@@ -198,12 +199,7 @@ class PackageExporter:
         else:  # is a byte buffer
             self.buffer = f
 
-        self.zip_file = torch._C.PyTorchFileWriter(f)
-        self.zip_file.set_min_version(6)
-        #TODO: export to an actual registry somewhere else later in the stack
-        self.external_registry = {}
-        #TODO: export to an actual registry somewhere else later in the stack
-        self.closing_functions = {}
+        self.zip_file = zip_file_reader_type(f)
 
         self._written_files: Set[str] = set()
 
@@ -993,6 +989,7 @@ class PackageExporter:
 
     def _finalize_zip(self):
         """Called at the very end of packaging to leave the zipfile in a closed but valid state."""
+        self.zip_file.close()
         del self.zip_file
         if self.buffer:
             self.buffer.flush()
