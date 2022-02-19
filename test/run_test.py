@@ -132,6 +132,7 @@ TESTS = discover_tests(
         "distributed/elastic/utils/util_test",
         "distributed/elastic/utils/distributed_test",
         "distributed/elastic/multiprocessing/api_test",
+        "test_deploy",
     ]
 )
 
@@ -167,6 +168,7 @@ USE_PYTEST_LIST = [
     "test_typing",
     "distributed/elastic/events/lib_test",
     "distributed/elastic/agent/server/test/api_test",
+    "test_deploy",
 ]
 
 WINDOWS_BLOCKLIST = [
