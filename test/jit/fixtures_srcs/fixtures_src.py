@@ -57,3 +57,17 @@ class TestVersionedGeluOutV9(torch.nn.Module):
     def forward(self, x):
         out = torch.zeros_like(x)
         return torch._C._nn.gelu(x, out=out)
+
+class TestVersionedGerV10(torch.nn.Module):
+    def __init__(self):
+        super(TestVersionedGerV10, self).__init__()
+
+    def forward(self, v1: torch.Tensor, v2: torch.Tensor):
+        return torch.ger(v1, v2)
+
+class TestVersionedGerOutV10(torch.nn.Module):
+    def __init__(self):
+        super(TestVersionedGerOutV10, self).__init__()
+
+    def forward(self, v1: torch.Tensor, v2: torch.Tensor, out: torch.Tensor):
+        return torch.ger(v1, v2, out=out)
