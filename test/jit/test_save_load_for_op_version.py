@@ -540,3 +540,105 @@ class TestSaveLoadForOpVersion(JitTestCase):
             self.assertTrue(output.size(dim=0) == 100)
             # "Upgraded" model should match the new version output
             self.assertEqual(output, output_current)
+
+    @parametrize("use_out_variant", [False, True])
+    def test_versioned_gelu(self, use_out_variant):
+        class Module(torch.nn.Module):
+            def forward(self, x):
+                return torch.nn.functional.gelu(x, approximate='tanh')
+
+        class ModuleOutVariant(torch.nn.Module):
+            def forward(self, x, out):
+                # torch.nn.functional.gelu doesn't have an out variant so call the underlying op
+                torch._C._nn.gelu(x, approximate=1, out=out)
+
+        serialized_path = ("/jit/fixtures/test_versioned_gelu_out_v9.ptl" if use_out_variant
+                           else "/jit/fixtures/test_versioned_gelu_v9.ptl")
+        scripted_module = torch.jit.load(pytorch_test_dir + serialized_path)
+
+        buffer = io.BytesIO(scripted_module._save_to_buffer_for_lite_interpreter())
+        buffer.seek(0)
+        v9_mobile_module = _load_for_lite_interpreter(buffer)
+        current_mobile_module = self._save_load_mobile_module(ModuleOutVariant if use_out_variant else Module)
+
+        sample_input = torch.randn(3)
+        output_without_approx = v9_mobile_module(sample_input)
+        if use_out_variant:
+            output_with_approx = torch.zeros_like(sample_input)
+            current_mobile_module(sample_input, output_with_approx)
+        else:
+            output_with_approx = current_mobile_module(sample_input)
+        self.assertFalse(torch.allclose(output_without_approx, output_with_approx))
+
+
+instantiate_parametrized_tests(TestSaveLoadForOpVersion)
+    @settings(max_examples=10, deadline=200000)  # A total of 10 examples will be generated
+    @given(
+        vec1=st.lists(
+            st.integers(min_value=7, max_value=1999),
+            min_size=1,
+            max_size=8,
+        ),
+        vec2=st.lists(
+            st.integers(min_value=7, max_value=1999),
+            min_size=1,
+            max_size=8,
+        )
+    )
+    @example([2, 3, 2.0, 3.0], [3, 2, 2, 2])  # Ensure this example will be covered
+    def test_versioned_ger(self, vec1, vec2):
+        try:
+            v9_mobile_module = _load_for_lite_interpreter(
+                pytorch_test_dir + "/jit/fixtures/test_versioned_ger_v9.ptl")
+            v9_jit_module = torch.jit.load(
+                pytorch_test_dir + "/jit/fixtures/test_versioned_ger_v9.ptl")
+        except Exception as e:
+            self.skipTest("Failed to load fixture!")
+
+        def _helper(m, fn):
+            m1_result = self._try_fn(m, vec1, vec2)
+            m2_result = self._try_fn(fn, vec1, vec2)
+
+            if isinstance(m1_result, Exception):
+                self.assertTrue(m2_result, Exception)
+            else:
+                self.assertEqual(m1_result, m2_result)
+
+        _helper(v9_mobile_module, torch.outer)
+        _helper(v9_jit_module, torch.outer)
+
+
+    @settings(max_examples=10, deadline=200000)  # A total of 10 examples will be generated
+    @given(
+        vec1=st.lists(
+            st.integers(min_value=7, max_value=1999),
+            min_size=6,
+            max_size=6,
+        ),
+        vec2=st.lists(
+            st.integers(min_value=7, max_value=1999),
+            min_size=6,
+            max_size=6,
+        )
+    )
+    @example([2, 3, 2.0, 3.0], [3, 2, 2, 2])  # Ensure this example will be covered
+    def test_versioned_ger_out(self, vec1, vec2):
+        try:
+            v9_mobile_module = _load_for_lite_interpreter(
+                pytorch_test_dir + "/jit/fixtures/test_versioned_ger_out_v9.ptl")
+            v9_jit_module = torch.jit.load(
+                pytorch_test_dir + "/jit/fixtures/test_versioned_ger_out_v9.ptl")
+        except Exception as e:
+            self.skipTest("Failed to load fixture!")
+
+        def _helper(m, fn):
+            m1_result = self._try_fn(m, vec1, vec2, out=out_m1)
+            m2_result = self._try_fn(fn, vec1, vec2, out=out_m2)
+
+            if isinstance(out_m1, Exception):
+                self.assertTrue(out_m2, Exception)
+            else:
+                self.assertEqual(out_m1, out_m2)
+
+        _helper(v9_mobile_module, torch.outer)
+        _helper(v9_jit_module, torch.outer)
