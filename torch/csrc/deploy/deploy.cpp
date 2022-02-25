@@ -1,4 +1,5 @@
 #include <c10/util/Exception.h>
+#include <torch/csrc/deploy/Exceptions.h>
 #include <torch/csrc/deploy/deploy.h>
 #include <torch/csrc/deploy/elf_file.h>
 #include <torch/cuda.h>
