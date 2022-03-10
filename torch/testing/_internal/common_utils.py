@@ -1649,6 +1649,16 @@ def set_warn_always_context(new_val: bool):
         torch.set_warn_always(old_val)
 
 
+class CWatchdog():
+    def __init__(self, name):
+        self.name = name
+
+    def __enter__(self):
+        torch._C._set_watchdog(self.name, 600)
+
+    def __exit__(self, exec_type, exec_value, traceback):
+        torch._C._set_watchdog(self.name, 0)
+
 class TestCase(expecttest.TestCase):
     # NOTE: "precision" lets classes and generated tests set minimum
     # atol values when comparing tensors. Used by @precisionOverride and @toleranceOverride, for
@@ -1700,6 +1710,10 @@ class TestCase(expecttest.TestCase):
 
         test_method = getattr(self, method_name, None)
         if test_method is not None:
+            # Wrap method with CWatchdog
+            test_method = self.wrap_method_with_c_watchdog(test_method)
+            setattr(self, method_name, test_method)
+
             # Wraps the tested method if we should do CUDA memory check.
             if not TEST_SKIP_CUDA_MEM_LEAK_CHECK:
                 self._do_cuda_memory_leak_check &= getattr(test_method, '_do_cuda_memory_leak_check', True)
@@ -1756,6 +1770,13 @@ class TestCase(expecttest.TestCase):
 
     def wrap_with_cuda_memory_check(self, method):
         return self.wrap_method_with_policy(method, self.assertLeaksNoCudaTensors)
+
+    def wrap_method_with_c_watchdog(self, method):
+        @wraps(method)
+        def wrapper(self, *args, **kwargs):
+            with CWatchdog(method.__name__):
+                method(*args, *kwargs)
+        return types.MethodType(wrapper, self)
 
     # Recursive function that incorporates retry logic when PYTORCH_RETRY_TEST_CASES=1 and enables early test
     # termination. [DISCLAIMER: ONLY WORKS WITH UNITTEST]
