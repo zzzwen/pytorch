@@ -333,8 +333,10 @@ def generate_tensor_like_torch_implementations():
                 untested_funcs.append("{}.{}".format(namespace, func.__name__))
     msg = (
         "The following functions are not tested for __torch_function__ "
-        "support, please ensure there is an entry in the dict returned by "
-        "torch._overrides.get_testing_overrides for this function or if a "
+        "support, if this function can be overriden and it has an OpInfo "
+        "please add an override_lambda to the OpInfo, "
+        "otherwise please ensure there is a entry in the dict returned by "
+        "torch._overrides.get_testing_overrides for this function. If a "
         "__torch_function__ override does not make sense, add an entry to "
         "the tuple returned by torch._overrides.get_ignored_functions.\n\n{}"
     )

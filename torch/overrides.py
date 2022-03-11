@@ -310,11 +310,9 @@ def get_testing_overrides() -> Dict[Callable, Callable]:
         torch.arccos: lambda input, out=None: -1,
         torch.acosh: lambda input, out=None: -1,
         torch.arccosh: lambda input, out=None: -1,
-        torch.add: lambda input, other, out=None: -1,
         torch.addbmm: lambda input, batch1, batch2, alpha=1, beta=1, out=None: -1,
         torch.addcdiv: lambda input, tensor1, tensor2, value=1, out=None: -1,
         torch.addcmul: lambda input, tensor1, tensor2, value=1, out=None: -1,
-        torch.addmm: lambda input, mat1, mat2, beta=1, alpha=1, out=None: -1,
         torch.addmv: lambda input, mat, vec, beta=1, alpha=1, out=None: -1,
         torch.addr: lambda input, vec1, vec2, beta=1, alpha=1, out=None: -1,
         torch.affine_grid_generator: lambda theta, size, align_corners: -1,
@@ -1206,6 +1204,15 @@ def get_testing_overrides() -> Dict[Callable, Callable]:
         Tensor.__dlpack_device__: lambda self: -1,
         torch.linalg.lstsq: lambda self, b, cond=None, driver=None: -1,
     }
+
+    from torch.testing._internal.common_methods_invocations import op_db
+
+    ret_opinfo = {}
+    for op in op_db:
+        if op.override_lambda:
+            ret_opinfo[op.op] = op.override_lambda
+
+    ret.update(ret_opinfo)
 
     ret2 = {}
     ignored = get_ignored_functions()
