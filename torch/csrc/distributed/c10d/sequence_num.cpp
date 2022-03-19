@@ -1,61 +1,58 @@
-#include <c10/util/Optional.h>
-#include <ATen/ThreadLocalState.h>
 #include <c10d/sequence_num.hpp>
 
-#include <c10/util/Logging.h>
+#include <c10/util/Exception.h>
+#include <c10/util/Optional.h>
 
 namespace c10d {
 SequenceNum::SequenceNum() : num_(c10::nullopt) {}
 
 SequenceNum::SequenceNum(const uint64_t num) : num_(num) {}
 
-SequenceNum::SequenceNum(const SequenceNum& other) {
-  if (!other.isSet()) {
-    num_ = c10::nullopt;
-  } else {
-    num_ = other.get();
-  }
+c10::optional<uint64_t> SequenceNum::num() const {
+  return num_.withLock([](const auto num) { return num; });
 }
 
+SequenceNum::SequenceNum(const SequenceNum& other) : num_(other.num()) {}
+
 uint64_t SequenceNum::get() const {
-  std::lock_guard<std::mutex> lock(lock_);
-  return *num_;
+  return num_.withLock([](const auto num) {
+    TORCH_CHECK(num != c10::nullopt);
+    return *num;
+  });
 }
 
 void SequenceNum::increment() {
-  std::lock_guard<std::mutex> lock(lock_);
-  TORCH_CHECK(num_ != c10::nullopt);
-  num_ = ++(*num_);
+  // Use the full type instead of `auto` to force a non-const reference.
+  num_.withLock([](c10::optional<uint64_t>& num) {
+    TORCH_CHECK(num != c10::nullopt);
+    *num = *num + 1;
+  });
 }
 
 // Implemented without above get() and increment() so we don't repeatedly lock
-// and unblock.
+// and unlock.
 uint64_t SequenceNum::getAndIncrement() {
-  uint64_t curVal;
-  std::lock_guard<std::mutex> lock(lock_);
-  TORCH_CHECK(num_ != c10::nullopt);
-  curVal = *num_;
-  num_ = ++(*num_);
-  return curVal;
+  // Use the full type instead of `auto` to force a non-const reference.
+  return num_.withLock([](c10::optional<uint64_t>& num) {
+    TORCH_CHECK(num != c10::nullopt);
+    uint64_t curVal = *num;
+    *num = curVal + 1;
+    return curVal;
+  });
 }
 
-void SequenceNum::set(const uint64_t num) {
-  std::lock_guard<std::mutex> lock(lock_);
-  num_ = num;
+void SequenceNum::set(const uint64_t new_num) {
+  // Use the full type instead of `auto` to force a non-const reference.
+  num_.withLock([=](c10::optional<uint64_t>& num) { *num = new_num; });
 }
 
 bool SequenceNum::isSet() const {
-  std::lock_guard<std::mutex> lock(lock_);
-  return num_ != c10::nullopt;
+  return num_.withLock([](const auto num) { return num != c10::nullopt; });
 }
 
 SequenceNum& SequenceNum::operator=(const SequenceNum& other) {
-  std::lock_guard<std::mutex> lock(lock_);
-  if (!other.isSet()) {
-    num_ = c10::nullopt;
-  } else {
-    num_ = other.get();
-  }
+  // Use the full type instead of `auto` to force a non-const reference.
+  num_.withLock([&](c10::optional<uint64_t>& num) { num = other.num(); });
   return *this;
 }
 
