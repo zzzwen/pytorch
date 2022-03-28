@@ -149,6 +149,8 @@ const char* toString(DispatchKey t) {
 
     case DispatchKey::ZeroTensor:
       return "ZeroTensor";
+    case DispatchKey::CsrTranspose:
+      return "CsrTranspose";
     case DispatchKey::BackendSelect:
       return "BackendSelect";
     case DispatchKey::Named:
@@ -258,6 +260,7 @@ c10::DispatchKey parseDispatchKey(const std::string& k) {
       {"Conjugate", c10::DispatchKey::Conjugate},
       {"Negative", c10::DispatchKey::Negative},
       {"ZeroTensor", c10::DispatchKey::ZeroTensor},
+      {"CsrTranspose", c10::DispatchKey::CsrTranspose},
       {"FuncTorchDynamicLayerBackMode",
        c10::DispatchKey::FuncTorchDynamicLayerBackMode},
       {"ADInplaceOrView", c10::DispatchKey::ADInplaceOrView},

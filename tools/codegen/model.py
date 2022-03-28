@@ -65,6 +65,7 @@ class DispatchKey(Enum):
     SparseCsrCUDA = auto()
 
     ZeroTensor = auto()
+    CsrTranspose = auto()
     Meta = auto()
     BackendSelect = auto()
     Named = auto()
