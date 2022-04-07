@@ -3134,3 +3134,58 @@ TEST(StaticRuntime, ReshapeAs) {
   )JIT";
   testStaticRuntime(src, {at::randn({2, 2}), at::randn({4})});
 }
+
+TEST(StaticRuntime, LifetimeExtendedThroughIf) {
+  // The last use of `b` is in a sub-block, its lifetime needs
+  // to be extended so `c` doesn't overwrite it
+  const auto src = R"JIT(
+    def forward(self, a, cond: bool):
+        b = torch.abs(a)
+        c = torch.argmin(a)
+        if cond:
+            d = torch.linear(b, b)
+        else:
+            b = a.view((1, 1))
+            d = b * c # extra op to avoid IfThenElse optimization
+        return c.clone(), d.clone()
+  )JIT";
+  testStaticRuntime(src, {at::tensor({5.0, 10.0, 42.0}), true});
+}
+
+TEST(StaticRuntime, LifetimeExtendedThroughIfDeeplyNested) {
+  // The last use of `b` is in a nested sub-block, its lifetime needs
+  // to be extended so `c` doesn't overwrite it
+  const auto src = R"JIT(
+    def forward(self, a, cond1: bool, cond2: bool):
+        b = torch.abs(a)
+        c = torch.argmin(a)
+        if cond1:
+            if cond2:
+                d = torch.linear(b, b)
+            else:
+                d = torch.linear(c, c)
+                d = d * d # extra op to avoid IfThenElse optimization
+        else:
+            b = a.view((1, 1))
+            d = b * c
+        return c.clone(), d.clone()
+  )JIT";
+  testStaticRuntime(src, {at::tensor({5.0, 10.0, 42.0}), true, true});
+}
+
+TEST(StaticRuntime, LifetimeExtendedThroughAliasInSubBlock) {
+  // The prim::If node creates an alias of `b`; its lifetime needs to
+  // be extended
+  const auto src = R"JIT(
+    def forward(self, a, cond: bool):
+        b = torch.abs(a)
+        if cond:
+            d = b.view(a.size())
+        else:
+            d = b * b
+            d = d * d # extra op to avoid ifThenElse optimization
+        e = torch.argmin(a) # b is still alive, don't overwrite it!
+        return d.clone(), e.clone()
+  )JIT";
+  testStaticRuntime(src, {at::tensor({5.0, 10.0, 42.0}), true});
+}

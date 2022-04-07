@@ -356,8 +356,20 @@ bool isPureFunction(const Node* node) {
 
 ManagedTensorRanges::ManagedTensorRanges(
     Block& block,
+    const FastSet<const Value*>& managed_tensor_values,
+    std::shared_ptr<Graph> graph)
+    : ManagedTensorRanges(
+          block,
+          AliasDb(graph),
+          managed_tensor_values,
+          valuesFromOuterScope(graph)) {}
+
+ManagedTensorRanges::ManagedTensorRanges(
+    Block& block,
     const AliasDb& alias_db,
-    const FastSet<const Value*>& managed_tensor_values) {
+    const FastSet<const Value*>& managed_tensor_values,
+    const FastMap<const Node*, std::vector<const Value*>>&
+        values_from_outer_scope) {
   const std::vector<Node*> nodes(block.nodes().begin(), block.nodes().end());
   const FastSet<const Value*> graph_inputs(
       block.inputs().begin(), block.inputs().end());
@@ -373,6 +385,20 @@ ManagedTensorRanges::ManagedTensorRanges(
       DCHECK(lifetime->end <= i);
       lifetime->end = i;
     }
+
+    auto it = values_from_outer_scope.find(node);
+    if (it != values_from_outer_scope.end()) {
+      auto& outer_scope_values = it->second;
+      for (auto* value : outer_scope_values) {
+        auto* lifetime = getLifetime(value);
+        if (!lifetime) {
+          continue;
+        }
+        DCHECK(lifetime->end <= i);
+        lifetime->end = i;
+      }
+    }
+
     for (auto* output : node->outputs()) {
       if (!alias_db.isMutableType(output)) {
         continue;
@@ -399,21 +425,34 @@ ManagedTensorRanges::ManagedTensorRanges(
       continue;
     }
 
-    auto inputs = collectValuesWithTrackedLifetimes(node->inputs());
     auto outputs = collectValuesWithTrackedLifetimes(node->outputs());
-    for (auto* input : inputs) {
-      auto* input_lifetime = getLifetime(input);
-      DCHECK(input_lifetime != nullptr);
-      for (auto* output : outputs) {
-        if (mayContainAlias(alias_db, input, output)) {
-          auto* output_lifetime = getLifetime(output);
-          DCHECK(output_lifetime != nullptr);
-          input_lifetime->end =
-              std::max(output_lifetime->end, input_lifetime->end);
-        }
-      }
+    auto checkOutputsForAliases =
+        [this, &outputs, &alias_db](const auto& inputs) {
+          for (auto* input : inputs) {
+            auto* input_lifetime = getLifetime(input);
+            if (!input_lifetime) {
+              continue;
+            }
+            for (auto* output : outputs) {
+              if (mayContainAlias(alias_db, input, output)) {
+                auto* output_lifetime = getLifetime(output);
+                DCHECK(output_lifetime != nullptr);
+                input_lifetime->end =
+                    std::max(output_lifetime->end, input_lifetime->end);
+              }
+            }
+          }
+        };
+
+    auto inputs = collectValuesWithTrackedLifetimes(node->inputs());
+    checkOutputsForAliases(inputs);
+    auto it = values_from_outer_scope.find(node);
+    if (it != values_from_outer_scope.end()) {
+      auto& outer_scope_values = it->second;
+      checkOutputsForAliases(outer_scope_values);
     }
   }
+
   for (auto* managed_tensor : managed_tensor_values) {
     auto* lifetime = getLifetime(managed_tensor);
     DCHECK(lifetime && lifetime->end <= num_nodes);
@@ -484,6 +523,40 @@ std::vector<const Value*> ManagedTensorRanges::
       std::back_inserter(mutable_values),
       [this](const Value* value) { return getLifetime(value) != nullptr; });
   return mutable_values;
+}
+
+namespace {
+void valuesFromOuterScopeHelper(
+    Block* block,
+    FastMap<Block*, Node*>& block_to_parent_node,
+    FastMap<const Node*, std::vector<const Value*>>& result) {
+  for (auto* node : block->nodes()) {
+    auto sub_blocks = node->blocks();
+    if (!sub_blocks.empty()) {
+      block_to_parent_node.emplace(block, node);
+      for (auto* sub_block : sub_blocks) {
+        valuesFromOuterScopeHelper(sub_block, block_to_parent_node, result);
+      }
+      block_to_parent_node.erase(block);
+    }
+
+    for (auto* input : node->inputs()) {
+      auto* owning_block = input->node()->owningBlock();
+      if (owning_block != block) {
+        auto* parent_node = block_to_parent_node.at(owning_block);
+        result[parent_node].emplace_back(input);
+      }
+    }
+  }
+}
+} // namespace
+
+FastMap<const Node*, std::vector<const Value*>> ManagedTensorRanges::
+    valuesFromOuterScope(std::shared_ptr<Graph> graph) {
+  FastMap<const Node*, std::vector<const Value*>> result;
+  FastMap<Block*, Node*> block_to_parent_node;
+  valuesFromOuterScopeHelper(graph->block(), block_to_parent_node, result);
+  return result;
 }
 
 StaticModule::StaticModule(
@@ -564,9 +637,12 @@ StaticModule::StaticModule(
 
   prepareStaticNodeInfos(graph_->block(), value_to_index, alias_db);
 
+  auto values_from_outer_scope =
+      ManagedTensorRanges::valuesFromOuterScope(graph_);
   for (auto& block_and_info : block_infos_) {
     auto& block_info = block_and_info.second;
-    block_info.prepare_for_memory_planner(alias_db, opts);
+    block_info.prepare_for_memory_planner(
+        alias_db, values_from_outer_scope, opts);
   }
 }
 
@@ -713,6 +789,8 @@ void BlockInfo::set_nodes(
 }
 void BlockInfo::prepare_for_memory_planner(
     const AliasDb& alias_db,
+    const FastMap<const Node*, std::vector<const Value*>>&
+        values_from_outer_scope,
     const StaticModuleOptions& opts) {
   if (!opts.enable_out_variant) {
     return;
@@ -760,8 +838,8 @@ void BlockInfo::prepare_for_memory_planner(
       "managed_output_tensor_values_: ",
       dumpValueSet(managed_output_tensor_values_));
 
-  managed_tensor_ranges_ =
-      ManagedTensorRanges(block_, alias_db, managed_tensor_values_);
+  managed_tensor_ranges_ = ManagedTensorRanges(
+      block_, alias_db, managed_tensor_values_, values_from_outer_scope);
 }
 
 const StaticModuleOptions& StaticModule::opts() const {
