@@ -114,7 +114,10 @@ def compare_weights(
                 weight_dict[key]["quantized"] = (
                     quantized_dict[key].__getstate__()[0][4][1].__getstate__()[0][0]
                 )
-
+    # To match the key name with FX ns
+    weight_dict = {
+        k.replace('.weight', '').replace('._packed_params._packed_params', ''): v for k, v in weight_dict.items()
+    }
     return weight_dict
 
 
@@ -522,4 +525,5 @@ def compare_model_outputs(
     float_model(*data)
     q_model(*data)
     act_compare_dict = get_matching_activations(float_model, q_model)
+    act_compare_dict = {k.replace('.stats', ''): v for k, v in act_compare_dict.items()}
     return act_compare_dict
