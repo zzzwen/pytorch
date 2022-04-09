@@ -5766,6 +5766,9 @@
 
 - func: item(Tensor self) -> Scalar
   variants: method
+  dispatch:
+    CompositeImplicitAutograd: item
+    QuantizedCPU, QuantizedCUDA: item_quantized
 
 - func: result_type.Tensor(Tensor tensor, Tensor other) -> ScalarType
   variants: function
