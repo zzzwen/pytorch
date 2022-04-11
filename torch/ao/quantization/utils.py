@@ -183,17 +183,15 @@ def activation_is_statically_quantized(qconfig):
     """ Given a qconfig, decide if the activation needs to be
     quantized or not, this includes quantizing to quint8, qint8 and float16
     """
-    return activation_dtype(qconfig) in [torch.quint8, torch.qint8, torch.float16]
+    return activation_dtype(qconfig) in [torch.quint8, torch.qint8, torch.float16] and \
+        not activation_is_dynamically_quantized(qconfig)
 
 def activation_is_dynamically_quantized(qconfig):
     """ Given a qconfig, decide if the activation needs to be
     dynamically quantized or not, this includes dynamically quantizing to
     quint8, qint8 and float16
     """
-    activation_dtype, _, activation_compute_dtype = \
-        get_qconfig_dtypes(qconfig)
-    return activation_dtype == torch.float and \
-        activation_compute_dtype in [torch.quint8, torch.qint8, torch.float16]
+    return qconfig.activation().replacement_quant_is_dynamic
 
 def activation_is_int8_quantized(qconfig):
     """ Given a qconfig, decide if the activation needs to be
@@ -223,24 +221,23 @@ def op_is_int8_dynamically_quantized(qconfig) -> bool:
     """ Given a qconfig, returns True if this op is using int8 dynamic
     quantization
     """
-    activation_dtype, weight_dtype, activation_compute_dtype = \
+    activation_dtype, weight_dtype = \
         get_qconfig_dtypes(qconfig)
     return (
-        activation_dtype is torch.float and
+        activation_is_int8_quantized(qconfig) and
         # for now, the lines below assume fbgemm or qnnpack
         weight_dtype is torch.qint8 and
-        activation_compute_dtype is torch.quint8
+        activation_is_dynamically_quantized(qconfig)
     )
 
 def get_qconfig_dtypes(qconfig):
     r""" returns the qconfig tuple for qconfig:
-    (activation_dtype, weight_dtype, activation_compute_dtype)
+    (activation_dtype, weight_dtype)
     """
     assert qconfig is not None
     activation = qconfig.activation()
     weight = qconfig.weight()
-    compute_dtype = activation.compute_dtype if hasattr(activation, 'compute_dtype') else None
-    return (activation.dtype, weight.dtype, compute_dtype)
+    return (activation.dtype, weight.dtype)
 
 def get_quant_type(qconfig):
     assert qconfig is not None
@@ -248,10 +245,10 @@ def get_quant_type(qconfig):
     weight = qconfig.weight()
     static_dtypes = [torch.quint8, torch.qint8, torch.quint4x2]
     if weight.dtype in static_dtypes:
-        if activation.dtype in static_dtypes:
-            return QuantType.STATIC
-        elif hasattr(activation, 'compute_dtype') and activation.compute_dtype in static_dtypes:
+        if activation.replacement_quant_is_dynamic:
             return QuantType.DYNAMIC
+        elif activation.dtype in static_dtypes:
+            return QuantType.STATIC
         else:
             return QuantType.WEIGHT_ONLY
 

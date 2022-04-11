@@ -56,7 +56,7 @@ from .match_utils import (
     find_matches,
 )
 
-from ..utils import _parent_name
+from ..utils import _parent_name, activation_is_dynamically_quantized
 from .utils import (
     get_custom_module_class_keys,
     all_node_args_have_no_tensors,
@@ -350,14 +350,13 @@ def get_target_activation_dtype_for_node(
         # get qconfig to determine the eventual dtype of this node
         if qconfig is not None:
             if qhandler is not None and qhandler.input_output_observed():
-                act_dtype, weight_dtype, act_compute_dtype = \
+                act_dtype, weight_dtype = \
                     get_qconfig_dtypes(qconfig)
                 bias_dtype = torch.float16 \
                     if act_dtype == torch.float16 and weight_dtype == torch.float16 \
                     else torch.float
                 return {
                     "input_activation_dtype": act_dtype,
-                    "input_activation_compute_dtype": act_compute_dtype,
                     "weight_dtype": weight_dtype,
                     "bias_dtype": bias_dtype,
                     "output_activation_dtype": act_dtype,
@@ -431,24 +430,6 @@ def get_arg_target_dtype_as_input_to_node(
     else:
         return node_name_to_target_dtype[node.name]["bias_dtype"]
 
-def get_arg_target_compute_dtype_as_input_to_node(
-    arg: Node,
-    node: Node,
-    modules: Dict[str, torch.nn.Module],
-    node_name_to_target_dtype: Dict[str, Dict[str, Union[torch.dtype, type, None]]],
-) -> Union[torch.dtype, type, None]:
-    """ Get the target argument dtype for the argument `arg`, as input
-    to node `node`
-    """
-    assert isinstance(arg, Node)
-    is_weight = node_arg_is_weight(node, arg)
-    is_bias = node_arg_is_bias(node, arg)
-    is_activation = not is_weight and not is_bias
-    if is_activation and \
-       "input_activation_compute_dtype" in node_name_to_target_dtype[node.name]:
-        return node_name_to_target_dtype[node.name]["input_activation_compute_dtype"]
-    else:
-        return None
 
 def maybe_insert_input_observer_for_arg_or_kwarg(
     node: Union[Node, Any],
@@ -499,9 +480,7 @@ def maybe_insert_input_observer_for_arg_or_kwarg(
 
         arg_as_output_target_dtype = get_arg_target_dtype_as_output(arg, modules, node_name_to_target_dtype)
         arg_as_input_target_dtype = get_arg_target_dtype_as_input_to_node(arg, node, modules, node_name_to_target_dtype)
-        arg_as_input_target_compute_dtype = \
-            get_arg_target_compute_dtype_as_input_to_node(
-                arg, node, modules, node_name_to_target_dtype)
+
         needs_obs = (
             # if the dtypes are different, we need an observer
             (arg_as_output_target_dtype != arg_as_input_target_dtype) and
@@ -514,14 +493,8 @@ def maybe_insert_input_observer_for_arg_or_kwarg(
             (arg_as_output_target_dtype not in DO_NOT_OBS_DTYPE_LIST) and
             # if qconfig is reuse_input qconfig, we won't insert extra observer for input
             not is_reuse_input_qconfig_ or
-            # need to add input observer for dynamic quantization
-            # only add observer for first input for now, we may need to extend
-            # qconfig_dict and backend_config_dict to support more general configurations
-            # of dynamic quantization, e.g. dynamically quantizing second input, third
-            # input etc.
-            (arg_as_input_target_compute_dtype in [torch.quint8, torch.int8, torch.float16]) and arg is node.args[0]
+            qconfig.activation().replacement_quant_is_dynamic and arg is node.args[0]
         )
-
     else:
         # custom flow for standalone modules
         _sm_qconfig_dict, sm_prepare_config_dict, _sm_backend_config_dict = \
@@ -722,7 +695,7 @@ def maybe_insert_output_observer_for_node(
     # we never insert observers to output of standalone module, we assume
     # if needed, they are inserted inside the standalone module
     should_insert_observer = should_insert_observer and \
-        (not is_standalone_module)
+        (not is_standalone_module) and not activation_is_dynamically_quantized(qconfig)
 
     if should_insert_observer:
         act_post_process_ctr = qconfig.activation
