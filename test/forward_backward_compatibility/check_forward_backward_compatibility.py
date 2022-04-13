@@ -115,6 +115,7 @@ ALLOW_LIST = [
     ("quantized::conv2d_relu_cudnn", datetime.date(2022, 3, 22)),
     ("prim::infer_squeeze_size.dim", datetime.date(9999, 1, 1)),
     ("prim::infer_squeeze_size", datetime.date(9999, 1, 1)),
+    ("aten::kl_div_backward", datetime.date(2022, 12, 31)),
 ]
 
 ALLOW_LIST_COMPILED = [
