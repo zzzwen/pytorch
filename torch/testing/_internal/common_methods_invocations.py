@@ -7820,20 +7820,6 @@ def sample_inputs_nll_loss(op_info, device, dtype, requires_grad, **kwargs):
     for input, target, kwargs in gen_shape_kwargs():
         yield SampleInput(input, args=(target,), kwargs=kwargs)
 
-def sample_inputs_binary_cross_entropy_with_logits(
-    op_info, device, dtype, requires_grad, **kwargs
-):
-    _make_tensor = partial(make_tensor, device=device, dtype=dtype, requires_grad=False)
-    for input, target, base_dict in _generate_sample_inputs_nn_loss(
-        op_info, device, dtype, requires_grad, **kwargs
-    ):
-        weight_lst = [None, random.uniform(-9, 9)]
-        pos_weight_lst = [None, random.uniform(-9, 9)]
-        for weight, pos_weight in product(weight_lst, pos_weight_lst):
-            base_dict["weight"] = _make_tensor(input.shape)
-            base_dict["pos_weight"] = _make_tensor(1, low=0)
-            yield SampleInput(input, args=(target,), kwargs=base_dict)
-
 def sample_inputs_argwhere(op_info, device, dtype, requires_grad, **kwargs):
     yield SampleInput(torch.tensor([1, 0, 2, 0], dtype=dtype, device=device, requires_grad=requires_grad))
     mask = torch.tensor([[0, 1, 0, 1, 0],
@@ -8045,6 +8031,32 @@ def sample_inputs_pdist(op_info, device, dtype, requires_grad, **kwargs):
     return [
         *[SampleInput(make_input((n, m))) for n, m in itertools.product((1, S), repeat=2)],
         *[SampleInput(make_input((S, S)), kwargs=dict(p=p)) for p in (0.0, 1.0, 2.0, 10.0, float("inf"))],
+    ]
+
+def sample_inputs_binary_cross_entropy(op_info, device, dtype, requires_grad, logits=False, **kwargs):
+    make = partial(make_tensor, device=device, dtype=dtype)
+    make_prob = partial(make, low=0, high=1)
+
+    reductions = ("mean", "sum", "none")
+
+    shapes_and_kwargs = [
+        *[(shape, None) for shape in ((), (1,), (S,), (S, S), (S, S, S))],
+        *[((S, S), dict(reduction=reduction)) for reduction in reductions],
+        *[((S, S), dict(reduction=reduction, weight=make((S, S)))) for reduction in reductions],
+    ]
+
+    if logits:
+        shapes_and_kwargs.extend(
+            [((S, S), dict(reduction=reduction, pos_weight=make((S,), low=0))) for reduction in reductions]
+        )
+
+    return [
+        SampleInput(
+            (make if logits else make_prob)(shape, requires_grad=requires_grad),
+            args=(make_prob(shape, requires_grad=requires_grad),),
+            kwargs=kwargs,
+        )
+        for shape, kwargs in shapes_and_kwargs
     ]
 
 
@@ -11325,57 +11337,6 @@ op_db: List[OpInfo] = [
            dtypesIfCUDA=floating_types_and(torch.float16, torch.bfloat16),
            gradcheck_nondet_tol=GRADCHECK_NONDET_TOL,
            sample_inputs_func=sample_inputs_avgpool3d),
-    OpInfo(
-        "nn.functional.binary_cross_entropy_with_logits",
-        aten_name="binary_cross_entropy_with_logits",
-        supports_autograd=True,
-        supports_forward_ad=True,
-        supports_fwgrad_bwgrad=True,
-        supports_out=False,
-        dtypes=floating_types_and(torch.bfloat16),
-        dtypesIfCUDA=floating_types_and(torch.float16, torch.bfloat16),
-        gradcheck_nondet_tol=GRADCHECK_NONDET_TOL,
-        sample_inputs_func=sample_inputs_binary_cross_entropy_with_logits,
-        skips=(
-            # The Weight tensor requires_grad = False
-            DecorateInfo(
-                unittest.skip("Skipped!"),
-                "TestCommon",
-                "test_floating_inputs_are_differentiable",
-                dtypes=(torch.float32,)
-            ),
-            # Adding OpInfo to existing operator
-            DecorateInfo(
-                unittest.skip("Skipped!"),
-                "TestCompositeCompliance",
-                "test_backward",
-                dtypes=(torch.float32,)
-            ),
-            # Pos Weight is required to be positve
-            DecorateInfo(
-                unittest.skip("Skipped!"),
-                "TestMathBits",
-                "test_neg_view",
-                dtypes=(torch.float64,)
-            ),
-            # Test Gradient failures CI
-            DecorateInfo(
-                unittest.skip("Skipped!"),
-                "TestGradients",
-                "test_neg_view",
-                dtypes=(torch.float64,)
-            ),
-            DecorateInfo(
-                unittest.skip("Skipped!"),
-                'TestJit',
-                'test_variant_consistency_jit',
-                dtypes=(torch.float32,)
-            ),
-            DecorateInfo(unittest.skip("Skipped!"), 'TestGradients', "test_fn_gradgrad", dtypes=(torch.float64,)),
-            DecorateInfo(unittest.skip("Skipped!"), 'TestGradients', "test_forward_mode_AD", dtypes=(torch.float64,)),
-            DecorateInfo(unittest.skip("Skipped!"), 'TestGradients', "test_fn_fwgrad_bwgrad", dtypes=(torch.float64,)),
-        ),
-    ),
     OpInfo('nn.functional.relu',
            aten_name="relu",
            supports_autograd=True,
@@ -16441,6 +16402,103 @@ op_db: List[OpInfo] = [
                 unittest.expectedFailure,
                 "TestJit",
                 "test_variant_consistency_jit",
+            ),
+        ),
+    ),
+    OpInfo(
+        "nn.functional.binary_cross_entropy",
+        sample_inputs_func=sample_inputs_binary_cross_entropy,
+        dtypes=floating_types(),
+        dtypesIfCUDA=floating_types_and(torch.float16, torch.bfloat16),
+        supports_out=False,
+        gradcheck_fast_mode=False,
+        decorators=(
+            DecorateInfo(
+                toleranceOverride({torch.float32: tol(atol=1e-3, rtol=1e-3)}),
+                "TestJit",
+                "test_variant_consistency_jit",
+            ),
+        ),
+        skips=(
+            # RuntimeError: expected int at position 0, but got: Tensor
+            DecorateInfo(
+                unittest.expectedFailure,
+                "TestJit",
+                "test_variant_consistency_jit",
+            ),
+            # NotImplementedError: the derivative for 'binary_cross_entropy_backward wrt `target`' is not implemented.
+            DecorateInfo(
+                unittest.expectedFailure,
+                "TestGradients",
+                "test_fn_gradgrad",
+            ),
+            # AssertionError: Found a sampled tensor of floating-point dtype torch.float32 sampled with
+            # requires_grad=False.
+            # `weight` input does not support gradient.
+            DecorateInfo(
+                unittest.expectedFailure,
+                "TestCommon",
+                "test_floating_inputs_are_differentiable",
+            ),
+        ),
+    ),
+    OpInfo(
+        "nn.functional.binary_cross_entropy_with_logits",
+        sample_inputs_func=partial(sample_inputs_binary_cross_entropy, logits=True),
+        dtypes=floating_types_and(torch.bfloat16),
+        dtypesIfCUDA=floating_types_and(torch.float16, torch.bfloat16),
+        supports_out=False,
+        supports_forward_ad=True,
+        gradcheck_fast_mode=False,
+        decorators=(
+            DecorateInfo(
+                toleranceOverride({torch.float32: tol(atol=1e-3, rtol=1e-3)}),
+                "TestJit",
+                "test_variant_consistency_jit",
+            ),
+        ),
+        skips=(
+            # torch.autograd.gradcheck.GradcheckError: Jacobian computed with forward mode mismatch for output 0 with
+            # respect to input 0
+            DecorateInfo(
+                unittest.expectedFailure,
+                "TestGradients",
+                "test_fn_fwgrad_bwgrad",
+            ),
+            # RuntimeError: one of the variables needed for gradient computation has been modified by an inplace
+            # operation: [torch.DoubleTensor [5, 5]], which is output 0 of SigmoidBackward0, is at version 1;
+            # expected version 0 instead.
+            DecorateInfo(
+                unittest.expectedFailure,
+                "TestGradients",
+                "test_fn_gradgrad",
+            ),
+            DecorateInfo(
+                unittest.expectedFailure,
+                "TestJit",
+                "test_variant_consistency_jit",
+            ),
+            # AssertionError: Found a sampled tensor of floating-point dtype torch.float32 sampled with
+            # requires_grad=False.
+            # `weight` input does not support gradient.
+            DecorateInfo(
+                unittest.expectedFailure,
+                "TestCommon",
+                "test_floating_inputs_are_differentiable",
+                dtypes=(torch.float32,)
+            ),
+            # RuntimeError: ZeroTensors are immutable. Please use the materialized zero tensor obtained using .clone()
+            # if you want a mutable tensor.
+            DecorateInfo(
+                unittest.expectedFailure,
+                "TestGradients",
+                "test_forward_mode_AD",
+            ),
+            DecorateInfo(
+                unittest.expectedFailure,
+                "TestCompositeCompliance",
+                "test_backward",
+                dtypes=(torch.float32,)
             ),
         ),
     ),
