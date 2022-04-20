@@ -4,7 +4,7 @@
  * This is an auto-generated file. Please do not modify it by hand.
  * To re-generate, please run:
  * cd ~/pytorch && python
- * tools/codegen/shape_functions/gen_jit_shape_functions.py
+ * torchgen/shape_functions/gen_jit_shape_functions.py
  */
 #include <torch/csrc/jit/jit_log.h>
 #include <torch/csrc/jit/passes/inliner.h>
