@@ -408,7 +408,11 @@ def _str_intern(inp, *, tensor_contents=None):
             strs = ",\n".join(indented_str(str(t), indent + 1) for t in torch.ops.aten.unbind.int(self, 0))
             tensor_str = f"[\n{strs}\n]"
     else:
-        if self.is_meta:
+        torch._C._debug_tensor(self)
+        print(self.is_meta)
+        print(self.device)
+        if self.is_meta or self.device.type == 'meta':
+            print("good")
             suffixes.append('size=' + str(tuple(self.shape)))
             if self.dtype != torch.get_default_dtype():
                 suffixes.append('dtype=' + str(self.dtype))

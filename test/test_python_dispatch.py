@@ -3,7 +3,7 @@
 import tempfile
 import torch
 from copy import deepcopy
-from torch.testing._internal.common_utils import TestCase, run_tests
+from torch.testing._internal.common_utils import TestCase, run_tests, skipIfCrossRef
 from torch.testing._internal.logging_tensor import LoggingTensor, LoggingTensorReentrant, LoggingTensorMode, \
     log_input, capture_logs, no_dispatch
 from torch.utils._pytree import tree_map
@@ -12,6 +12,7 @@ from torch.utils._python_dispatch import enable_torch_dispatch_mode, push_torch_
 import logging
 from functools import partial
 
+@skipIfCrossRef
 class TestPythonDispatch(TestCase):
     def test_basic(self) -> None:
         with capture_logs() as logs:

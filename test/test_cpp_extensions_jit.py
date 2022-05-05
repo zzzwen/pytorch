@@ -15,7 +15,7 @@ import torch
 import torch.backends.cudnn
 import torch.utils.cpp_extension
 from torch.utils.cpp_extension import CUDA_HOME, ROCM_HOME
-from torch.testing._internal.common_utils import gradcheck
+from torch.testing._internal.common_utils import gradcheck, skipIfCrossRef
 
 
 TEST_CUDA = torch.cuda.is_available() and CUDA_HOME is not None
@@ -38,6 +38,7 @@ def remove_build_path():
         shutil.rmtree(default_build_root)
 
 
+@skipIfCrossRef
 class TestCppExtensionJIT(common.TestCase):
     """Tests just-in-time cpp extensions.
     Don't confuse this with the PyTorch JIT (aka TorchScript).
