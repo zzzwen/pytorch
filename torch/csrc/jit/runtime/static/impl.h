@@ -624,19 +624,6 @@ class TORCH_API BlockRunner {
       bool output_returned = true,
       bool recurse_on_sub_blocks = false);
 
-  // WARNING: Deallocate managed output tensors.  A client receiving Static
-  // Runtime-managed Tensors needs to be very careful to call
-  // `StaticRuntime::deallocateOutputTensors` after all references of output
-  // Tensors are gone.
-  void deallocateOutputTensors();
-
-  bool checkOutputTensorMemoryLeaks();
-
-  bool isManagedOutputTensor(const IValue& ivalue) const;
-  bool isManagedOutputTensorValue(const Value* value) const;
-
-  void disableManageOutputTensors();
-
   // This is the fallback path taken if we can't construct the memory planner
   // on the first iteration.
   // IMPORTANT: Nothing here should be able to throw!!!
@@ -874,9 +861,8 @@ class TORCH_API ProcessedNode {
     return fn_->num_outputs();
   }
 
-  C10_NODISCARD c10::ArrayRef<const IValue> outputs() const {
-    return c10::ArrayRef<const IValue>(
-        values_ + outputs_offset_, num_outputs());
+  c10::ArrayRef<const IValue> outputs() const {
+    return c10::ArrayRef<const IValue>(values_ + outputs_offset_, num_outputs());
   }
 
   C10_NODISCARD uint16_t num_inputs() const {
@@ -973,11 +959,6 @@ class TORCH_API StaticRuntime {
       const KeywordArgs& kwargs = KeywordArgs());
 
   bool check_for_memory_leak(bool output_returned = true);
-  bool checkOutputTensorMemoryLeaks();
-
-  void deallocateOutputTensors();
-  bool isManagedOutputTensor(const IValue& ivalue) const;
-  void disableManageOutputTensors();
 
   // Gets the top-level memory planner. Used for testing.
   const MemoryPlanner* get_memory_planner() const;

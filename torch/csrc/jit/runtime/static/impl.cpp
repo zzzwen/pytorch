@@ -1210,9 +1210,6 @@ void BlockRunner::Deallocator::cleanupImpl() {
   }
   // clean up owning refs of input tensors
   block_runner_.clean_up_input_ivalues();
-  if (C10_UNLIKELY(!finished_)) {
-    block_runner_.deallocateOutputTensors();
-  }
 }
 
 template <typename IValueList>
@@ -1229,7 +1226,6 @@ c10::IValue BlockRunner::run_impl(
     auto on_exit = Deallocator(*this);
 
     if (planner_) {
-      DCHECK(!manage_output_tensors_enabled_ || checkOutputTensorMemoryLeaks());
       maybe_allocate();
     }
 
@@ -1440,9 +1436,6 @@ float BlockRunner::benchmark_model(
     (void)i; // Suppress unused variable warning
     for (const auto j : c10::irange(args_list.size())) {
       operator()(args_list[j], is_kwargs_empty ? empty_kwargs : kwargs_list[j]);
-      if (manage_output_tensors_enabled_) {
-        deallocateOutputTensors();
-      }
     }
   }
   caffe2::Timer timer;
@@ -1450,9 +1443,6 @@ float BlockRunner::benchmark_model(
     (void)i; // Suppress unused variable warning
     for (const auto j : c10::irange(args_list.size())) {
       operator()(args_list[j], is_kwargs_empty ? empty_kwargs : kwargs_list[j]);
-      if (manage_output_tensors_enabled_) {
-        deallocateOutputTensors();
-      }
     }
   }
   float millis = timer.MilliSeconds();
@@ -1570,7 +1560,6 @@ BlockRunner::IndividualMetrics BlockRunner::benchmark_individual_ops(
 
   const bool is_kwargs_empty = kwargs_list.size() == 0;
   const KeywordArgs empty_kwargs;
-  bool manage_output_tensors = static_module_.opts().manage_output_tensors;
   // See comment on above use of InferenceMode for
   // explanation.
   c10::InferenceMode mode;
@@ -1587,9 +1576,6 @@ BlockRunner::IndividualMetrics BlockRunner::benchmark_individual_ops(
   // iterations just use the already established memory planning.
   timer.Start();
   operator()(args_list[0], is_kwargs_empty ? empty_kwargs : kwargs_list[0]);
-  if (manage_output_tensors) {
-    deallocateOutputTensors();
-  }
   results.first_iter_time = timer.MilliSeconds();
 
   // warmup runs
@@ -1597,9 +1583,6 @@ BlockRunner::IndividualMetrics BlockRunner::benchmark_individual_ops(
     (void)i; // Suppress unused variable warning
     for (const auto j : c10::irange(args_list.size())) {
       operator()(args_list[j], is_kwargs_empty ? empty_kwargs : kwargs_list[j]);
-      if (manage_output_tensors) {
-        deallocateOutputTensors();
-      }
     }
   }
 
@@ -1629,9 +1612,6 @@ BlockRunner::IndividualMetrics BlockRunner::benchmark_individual_ops(
       planner_->deallocate();
       // clean up owning refs of input tensors
       clean_up_input_ivalues();
-      if (manage_output_tensors) {
-        deallocateOutputTensors();
-      }
       millis = timer.MilliSeconds();
       results.memory_dealloc_time += millis;
 
@@ -1698,17 +1678,6 @@ bool BlockRunner::check_for_memory_leak(
     for (const auto i : c10::irange(pnode.num_outputs())) {
       const IValue* ival = &pnode.Output(i);
       const Value* val = pnode.node()->output(i);
-      // subtlety: isManagedOutputTensorValue may give a false
-      // negative here if an output is an alias of this value, so
-      // check the actual tensor!
-      if (planner_ &&
-          (isManagedOutputTensor(*ival) || isManagedOutputTensorValue(val))) {
-        // `ival` contains a managed output tensor that the runtime doesn't
-        // reclaim at the end of an iteration, but the client does so
-        // by explicitly calling
-        // `BlockRunner::deallocateOutputTensors`.
-        continue;
-      }
       const std::string error_msg = "Output " + c10::to_string(i) + ", %" +
           val->debugName() + " of node " + c10::to_string(n) +
           " which has kind " + pnode.node()->kind().toQualString() +
@@ -1752,79 +1721,6 @@ bool BlockRunner::check_for_memory_leak(
   }
   VLOG(1) << "Finished checking for memory leak";
   return true;
-}
-
-void BlockRunner::deallocateOutputTensors() {
-  if (!static_module_.opts().manage_output_tensors) {
-    TORCH_CHECK(
-        !planner_ || planner_->numOutputBufferBytes() == 0,
-        "manage_output_tensors is disabled, but output tensor buffer is not empty.");
-    return;
-  }
-  if (planner_) {
-    planner_->deallocateOutputTensors();
-    DCHECK(checkOutputTensorMemoryLeaks());
-  }
-}
-
-bool BlockRunner::checkOutputTensorMemoryLeaks() {
-  if (!static_module_.opts().manage_output_tensors || !planner_) {
-    return true;
-  }
-  for (const auto n : c10::irange(nodes_.size())) {
-    auto& pnode = nodes_[n];
-    for (const auto i : c10::irange(pnode.num_outputs())) {
-      const IValue* ival = &pnode.Output(i);
-      const Value* val = pnode.node()->output(i);
-      if (!isManagedOutputTensorValue(val) || !ival->isTensor()) {
-        // ival can not be a tensor if it's being managed by ops like
-        // to_maybe_copy_out; see ReplaceWithMaybeCopy for details.
-        continue;
-      }
-      const auto& t = ival->toTensor();
-      if (t.defined()) {
-        auto* storage_impl = t.storage().unsafeGetStorageImpl();
-        const std::string error_msg = "Output " + c10::to_string(i) + ", %" +
-            val->debugName() + " of node " + c10::to_string(n) +
-            " was not cleaned up";
-        TORCH_CHECK(storage_impl->data() == nullptr, error_msg);
-      }
-    }
-  }
-  VLOG(1) << "Finished checking for memory leak from output tensors";
-  return true;
-}
-
-bool BlockRunner::isManagedOutputTensor(const IValue& ivalue) const {
-  return planner_ && planner_->isManagedOutputTensor(ivalue);
-}
-
-bool BlockRunner::isManagedOutputTensorValue(const Value* value) const {
-  // It's possible that manage_output_tensors_ was disabled after initializing
-  // managed_output_tensor_values, so we have to check that flag here.
-  if (!planner_ || !manage_output_tensors_enabled_) {
-    return false;
-  }
-  const auto& managed_outputs = block_info_.managed_output_tensor_values();
-  return managed_outputs.find(value) != managed_outputs.end();
-}
-
-void BlockRunner::disableManageOutputTensors() {
-  if (!manage_output_tensors_enabled_) {
-    return;
-  }
-  manage_output_tensors_enabled_ = false;
-  if (!planner_) {
-    return;
-  }
-  // Reset all IValues and destruct planner_ so that it can be reconstructed in
-  // the next run.
-  for (auto& n : nodes_) {
-    for (const auto i : c10::irange(n.outputs().size())) {
-      n.Output(i) = IValue();
-    }
-  }
-  planner_.reset();
 }
 
 ProcessedFunction::ProcessedFunction(
@@ -2120,22 +2016,6 @@ c10::IValue StaticRuntime::operator()(
 bool StaticRuntime::check_for_memory_leak(bool output_returned) {
   return block_->check_for_memory_leak(
       output_returned, /* recurse_on_sub_blocks */ true);
-}
-
-bool StaticRuntime::checkOutputTensorMemoryLeaks() {
-  return block_->checkOutputTensorMemoryLeaks();
-}
-
-void StaticRuntime::deallocateOutputTensors() {
-  block_->deallocateOutputTensors();
-}
-
-bool StaticRuntime::isManagedOutputTensor(const IValue& ivalue) const {
-  return block_->isManagedOutputTensor(ivalue);
-}
-
-void StaticRuntime::disableManageOutputTensors() {
-  block_->disableManageOutputTensors();
 }
 
 const MemoryPlanner* StaticRuntime::get_memory_planner() const {

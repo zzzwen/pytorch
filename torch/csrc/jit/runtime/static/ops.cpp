@@ -1429,7 +1429,7 @@ void to_maybe_copy_out_functor(ProcessedNode* p_node) {
       has_constant_non_tensor_dtype_and_flags,
       has_memory_format>(p_node);
   const auto& self = p_node->Input(0).toTensor();
-  if (CheckToWillAlias<
+ if (CheckToWillAlias<
           has_constant_non_tensor_dtype_and_flags,
           has_memory_format>::call(p_node, self, args)) {
     // Don't write our Tensor output. This leaves it None if it
