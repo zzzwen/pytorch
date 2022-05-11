@@ -603,6 +603,13 @@
 
 - func: arange.start(Scalar start, Scalar end, *, ScalarType? dtype=None, Layout? layout=None, Device? device=None, bool? pin_memory=None) -> Tensor
 
+# Note [arange.start_step schema]
+# We want `arange.start_step` to be grouped up with `arange.start_out`,
+# But this doesn't happen automatically because:
+# (1) The step argument is defaultable for .start_out but not for .start_step
+# (2) Making it defaultable for start_step will require changing the overload name,
+#     to avoid function overload ambiguity with arange.start
+# (3) changing the overload name is BC-breaking (but we should probably do it later!)
 - func: arange.start_step(Scalar start, Scalar end, Scalar step, *, ScalarType? dtype=None, Layout? layout=None, Device? device=None, bool? pin_memory=None) -> Tensor
 
 - func: arange.out(Scalar end, *, Tensor(a!) out) -> Tensor(a!)
@@ -882,6 +889,8 @@
   dispatch:
     CPU, CUDA: bernoulli_
 
+# Note [bernoulli.p schema]
+# We should probably just fix the overload ambiguity by appending a _functional to the C++ API name (BC breaking)
 # This out-of-place version isn't used explicitly, but needed by jit.
 # There is no default valid on `p` here because it would introduce ambiguity
 # with `bernoulli(Tensor self, *, Generator? generator=None)` declaration.
@@ -5805,7 +5814,6 @@
   dispatch:
     CPU: fused_moving_avg_obs_fake_quant_cpu
     CUDA: fused_moving_avg_obs_fake_quant_cuda
-
 
 - func: _choose_qparams_per_tensor(Tensor self, bool reduce_range=False) -> (float, int)
   variants: function
@@ -11149,7 +11157,7 @@
   python_module: linalg
   variants: function
 
-- func: linalg_eigvalsh.out(Tensor self, str UPLO='L', *, Tensor(a!) out) -> Tensor(a!)
+- func: linalg_eigvalsh.out(Tensor self, str UPLO="L", *, Tensor(a!) out) -> Tensor(a!)
   python_module: linalg
   dispatch:
     CPU, CUDA: linalg_eigvalsh_out

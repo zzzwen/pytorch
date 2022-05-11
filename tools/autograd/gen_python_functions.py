@@ -171,11 +171,15 @@ SKIP_PYTHON_BINDINGS_SIGNATURES = [
     "mul_.Scalar(Tensor(a!) self, Scalar other) -> Tensor(a!)",
     "div.Scalar(Tensor self, Scalar other) -> Tensor",
     "div_.Scalar(Tensor(a!) self, Scalar other) -> Tensor(a!)",
+    "_fused_moving_avg_obs_fq_helper.functional(Tensor self, Tensor observer_on, Tensor fake_quant_on, Tensor running_min, Tensor running_max, Tensor scale, Tensor zero_point, float averaging_const, int quant_min, int quant_max, int ch_axis, bool per_row_fake_quant=False, bool symmetric_quant=False) -> (Tensor output, Tensor mask, Tensor running_min, Tensor running_max, Tensor scale, Tensor zero_point)",  # only used by the functionalization pass # noqa: B950
 ]
 
 
 @with_native_function
 def should_generate_py_binding(f: NativeFunction) -> bool:
+    # So far, all NativeFunctions that are entirely code-generated do not get python bindings.
+    if "generated" in f.tags:
+        return False
     name = cpp.name(f.func)
     for skip_regex in SKIP_PYTHON_BINDINGS:
         if skip_regex.match(name):

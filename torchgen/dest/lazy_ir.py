@@ -304,6 +304,10 @@ class GenLazyNativeFuncDefinition:
     def get_device(self, func: NativeFunction, schema: LazyIrSchema) -> str:
         value_args = schema.filtered_args(values=True, scalars=False)
         value_types_names = [f"{a.name}" for a in value_args if not a.is_wrapped_scalar]
+        if func.func.arguments.tensor_options is not None:
+            # This is safe to do because every function we're generating follows the dispatcher API:
+            # all TensorOptions arguments are exploded into their individual pieces.
+            value_types_names.append(func.func.arguments.tensor_options.device.name)
         assert (
             len(value_types_names) > 0
         ), "Code below assumes there is at least one tensor arg"
@@ -364,6 +368,12 @@ class GenLazyNativeFuncDefinition:
         returns_length = len(schema.returns)
         value_args = schema.filtered_args(values=True, scalars=False)
         value_types_names = [f"{a.name}" for a in value_args if not a.is_wrapped_scalar]
+        if func.func.arguments.tensor_options is not None:
+            # Note: this is wrong, but I think that the "first_tensor_name" code below
+            # shouldn't actually be needed anywhere. I took a a look at XLA's implementation,
+            # and they don't need it for `arange_out()`.
+            # (we can also fix things by just having them lower arange() instead)
+            value_types_names.append(func.func.arguments.tensor_options.device.name)
         assert (
             len(value_types_names) > 0
         ), "Code below assumes there is at least one tensor arg"

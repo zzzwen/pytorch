@@ -72,6 +72,10 @@ from torchgen.gen_functionalization_type import (
     gen_functionalization_registration,
     gen_functionalization_view_inverse_declaration,
     gen_composite_view_copy_kernel,
+    gen_composite_functional_kernel,
+    OUT_OPS_THAT_DONT_GET_GROUPED_PROPERLY,
+    MUTABLE_OPS_THAT_CANNOT_GET_AN_OUT_VARIANT,
+    INPLACE_OPS_THAT_DONT_GET_GROUPED_PROPERLY,
 )
 
 T = TypeVar("T")
@@ -152,6 +156,152 @@ _GLOBAL_PARSE_NATIVE_YAML_CACHE = {}
 ParsedYaml = namedtuple("ParsedYaml", ["native_functions", "backend_indices"])
 
 
+def pre_group_native_functions(
+    native_functions: Sequence[NativeFunction],
+) -> Dict[FunctionSchema, Dict[SchemaKind, NativeFunction]]:
+    pre_grouped_native_functions: Dict[
+        FunctionSchema, Dict[SchemaKind, NativeFunction]
+    ] = defaultdict(dict)
+    for f in native_functions:
+        d = pre_grouped_native_functions[f.func.signature()]
+        assert f.func.kind() not in d
+        d[f.func.kind()] = f
+    return pre_grouped_native_functions
+
+
+# This function is responsible for adding generated NativeFunctions which don't appear
+# explicitly in the codegen.
+# You can inspect the full list of NativeFunctions yourself with the torchgen package, by running
+# torchgen.parse_native_yaml("aten/src/ATen/native/native_functions.yaml", "aten/src/ATen/native/tags.yaml")
+# (Maybe we should make a friendly API for this)
+# Today, the functions that we generate of consist of:
+# - For any *CompositeExplicitAutograd* operators that are missing a functional or out= variant,
+#   we generate those missing variants in terms of the existing ones. This has two benefits:
+#   (1) Allows us to more consistently group together variants into NativeFunctionsGroup objects.
+#   (2) Gives the functionalization pass functional variants to work with, so we don't need to
+#       manually implement functional variants of all operators to get support for all mutable operators.
+def add_generated_native_functions(
+    rs: List[NativeFunction],
+    indices: Dict[DispatchKey, Dict[OperatorName, BackendMetadata]],
+) -> Tuple[
+    List[NativeFunction], Dict[DispatchKey, Dict[OperatorName, BackendMetadata]]
+]:
+    pre_grouped_native_functions = pre_group_native_functions(rs)
+    for k, d in pre_grouped_native_functions.items():
+        has_functional = SchemaKind.functional in d
+        has_inplace = SchemaKind.inplace in d
+        has_mutable = SchemaKind.mutable in d
+        has_out = SchemaKind.out in d
+
+        # We automatically generate a few native functions that don't exist in the yaml, for a few reasons:
+        # (1) If an operator has an inplace/out= variant but no functional variant, we can generate
+        #     a simple functional variant that the functionalization pass can consume.
+        # (2) If an operator has an inplace and functional but no out= variant, we generate an out=
+        #     variant, mostly so we can easily pair up functions into NativeFunctionsGroup,
+        #     while maintaining the constraint that the out= variant is "required".
+        #
+        # For now, we don't bother generated NativeFunctions for existing operators
+        # That only have a functional variant.
+        if has_mutable or has_inplace or has_out:
+
+            # Don't bother generating functions trio's for native functions that bypass the dispatcher.
+            are_manual = all(f.manual_cpp_binding for f in d.values())
+            # Don't bother generating functional + out= variants for view operators
+            has_view_ops = (
+                has_inplace and "inplace_view" in d[SchemaKind.inplace].tags
+            ) or any(f.is_view_op for f in d.values())
+            # Don't generate the other variants for CompositeImplicitAutograd operators.
+            # We could probably do this, but the main benefit of generating the function triplets
+            # is for transforms that need them, and transforms don't need to act directly
+            # on CompositeImplicitAutograd operators (since we let them decompose).
+            are_composite_implicit = all(
+                f.has_composite_implicit_autograd_kernel for f in d.values()
+            )
+            if are_manual or has_view_ops or are_composite_implicit:
+                continue
+            if has_out and len(d.values()) == 1:
+                # Note: [Out ops with functional variants that don't get grouped properly]
+                # In theory we could validly have an out= operator in native_functions.yaml
+                # that has no other variants.
+                # But today, all of the operators where that's the case actually do have
+                # functional variants, that we are just unable to pair up properly.
+                # I think banning this all together is probably safer
+                # (you can always add a functional variant yourself if you want to add a new out= operator).
+                #
+                # We should probably fix the existing cases; this check is to prevent us from adding more over time.
+                if (
+                    str(d[SchemaKind.out].func.name)
+                    not in OUT_OPS_THAT_DONT_GET_GROUPED_PROPERLY
+                ):
+                    raise AssertionError(
+                        f"Found an out= operator that we could not find any other variants of: {str(d[SchemaKind.out].func)}"
+                    )
+                continue
+
+            # Some inplace ops that have problematic schemas (that we should fix), which prevent us
+            # from generating out= and functional variants
+            if (
+                has_inplace
+                and str(d[SchemaKind.inplace].func.name)
+                in INPLACE_OPS_THAT_DONT_GET_GROUPED_PROPERLY
+            ):
+                continue
+
+            base_fn = (
+                d[SchemaKind.inplace]
+                if has_inplace
+                else d[SchemaKind.mutable]
+                if has_mutable
+                else d[SchemaKind.out]
+            )
+
+            # Note: [Mutable ops that cannot get an out variant]
+            # We can only generate an out= variant if either:
+            # - the original function has tensor-like returns (since we can convert them to out kwargs)
+            # - or it's inplace (since we can convert `self` to an out kwarg)
+            # There are only two functions that don't fit this criteria today though,
+            # and they both look like they should be fixed to be out= variants,
+            # so if feels safer to ban this schema all-together
+            gets_out_variant = not has_out and (
+                base_fn.func.kind() == SchemaKind.inplace
+                or any(r.type.is_tensor_like() for r in base_fn.func.returns)
+            )
+            if not has_out and not gets_out_variant:
+                if (
+                    str(base_fn.func.name)
+                    not in MUTABLE_OPS_THAT_CANNOT_GET_AN_OUT_VARIANT
+                ):
+                    raise AssertionError(
+                        f"""Found a mutable operator that we could not generate an out= variant for: {str(base_fn.func)}.
+These operators are problematic, because we can't easily auto-generate functionalization code for them. If you really need
+the operator have the schema mentioned, that add the name of the operator to the allow-list. Otherwise if possible,
+please convert it to an inplace operator"""
+                    )
+
+            # Generate an out= variant
+            if gets_out_variant:
+                fn, metadata = NativeFunctionsGroup.generate_function(
+                    base_fn, SchemaKind.out
+                )
+                d[SchemaKind.out] = fn
+                BackendIndex.grow_index(indices, metadata)
+
+            # Generate a functional variant, but only do it if the operator got an out= variant
+            # (Functional variants are only useful if we can group up the variants,
+            # which we can only do if they have an out= variant)
+            if not has_functional and (has_out or gets_out_variant):
+                fn, metadata = NativeFunctionsGroup.generate_function(
+                    base_fn, SchemaKind.functional
+                )
+                d[SchemaKind.functional] = fn
+                BackendIndex.grow_index(indices, metadata)
+
+    new_fns: List[NativeFunction] = list(
+        concatMap(lambda d: list(d.values()), pre_grouped_native_functions.values())
+    )
+    return new_fns, indices
+
+
 def parse_native_yaml_struct(
     es: object, valid_tags: Set[str], path: str = "<stdin>"
 ) -> ParsedYaml:
@@ -177,6 +327,7 @@ def parse_native_yaml_struct(
             index={},
         )
     )
+    rs, bs = add_generated_native_functions(rs, bs)
     for k, v in bs.items():
         # All structured in-tree operators are implemented in terms of their out operator.
         indices[k] = BackendIndex(
@@ -1273,19 +1424,6 @@ def get_custom_build_selector(
     return selector
 
 
-def pre_group_native_functions(
-    native_functions: Sequence[NativeFunction],
-) -> Dict[FunctionSchema, Dict[SchemaKind, NativeFunction]]:
-    pre_grouped_native_functions: Dict[
-        FunctionSchema, Dict[SchemaKind, NativeFunction]
-    ] = defaultdict(dict)
-    for f in native_functions:
-        d = pre_grouped_native_functions[f.func.signature()]
-        assert f.func.kind() not in d
-        d[f.func.kind()] = f
-    return pre_grouped_native_functions
-
-
 def get_grouped_by_view_native_functions(
     native_functions: Sequence[NativeFunction],
 ) -> Sequence[Union[NativeFunction, NativeFunctionsViewGroup]]:
@@ -1338,6 +1476,9 @@ def get_grouped_native_functions(
     ) -> Sequence[Union[NativeFunction, NativeFunctionsGroup]]:
         r = NativeFunctionsGroup.from_dict(d)
         if r is None:
+            # Invariant: any NativeFunctions that are code-generated
+            # should have been grouped into NativeFunctionsGroup objects
+            assert not any("generated" in f.tags for f in d.values())
             return list(d.values())
         else:
             return [r]
@@ -1830,9 +1971,7 @@ def gen_source_files(
     native_functions: Sequence[NativeFunction],
     grouped_native_functions: Sequence[Union[NativeFunction, NativeFunctionsGroup]],
     structured_native_functions: Sequence[NativeFunctionsGroup],
-    native_functions_with_view_groups: Sequence[
-        Union[NativeFunction, NativeFunctionsViewGroup]
-    ],
+    view_groups: Sequence[NativeFunctionsViewGroup],
     selector: SelectiveBuilder,
     static_dispatch_idx: List[BackendIndex],
     backend_indices: Dict[DispatchKey, BackendIndex],
@@ -2113,30 +2252,11 @@ TORCH_LIBRARY_IMPL(aten, $dispatch_key, m) {
         },
     )
 
-    # We need to easily map from [inplace_op_name] -> [functional_op] for the functionalization pass,
-    # so here I generate a mapping from every operator name to its corresponding functional NativeFunction (if it exist).
-    pre_grouped_d: Dict[
-        FunctionSchema, Dict[SchemaKind, NativeFunction]
-    ] = pre_group_native_functions(native_functions)
-    to_functional_op: Dict[OperatorName, Optional[NativeFunction]] = {
-        k: v
-        for d in [
-            {
-                f.func.name: pre_grouped_d[func][SchemaKind.functional]
-                if SchemaKind.functional in pre_grouped_d[func].keys()
-                else None
-                for f in pre_grouped_d[func].values()
-            }
-            for func in pre_grouped_d.keys()
-        ]
-        for k, v in d.items()
-    }
-
     def functionalization_env_callable(
-        g: Union[NativeFunction, NativeFunctionsViewGroup]
+        g: Union[NativeFunction, NativeFunctionsGroup, NativeFunctionsViewGroup]
     ) -> Dict[str, List[str]]:
         def gen_op_headers(
-            g: Union[NativeFunction, NativeFunctionsViewGroup]
+            g: Union[NativeFunction, NativeFunctionsGroup, NativeFunctionsViewGroup]
         ) -> List[str]:
             if isinstance(g, NativeFunctionsViewGroup):
                 # view ops always get a functionalization kernel
@@ -2150,11 +2270,28 @@ TORCH_LIBRARY_IMPL(aten, $dispatch_key, m) {
                         f"#include <ATen/ops/{g.view_copy.root_name}_ops.h>",
                     ]
                 return headers
+            elif isinstance(g, NativeFunctionsGroup):
+                headers = [
+                    f"#include <ATen/ops/{g.functional.root_name}_native.h>",
+                    f"#include <ATen/ops/{g.functional.root_name}_ops.h>",
+                    f"#include <ATen/ops/{g.out.root_name}_native.h>",
+                    f"#include <ATen/ops/{g.out.root_name}_ops.h>",
+                ]
+                if g.inplace is not None:
+                    headers += [
+                        f"#include <ATen/ops/{g.inplace.root_name}_native.h>",
+                        f"#include <ATen/ops/{g.inplace.root_name}_ops.h>",
+                    ]
+                if g.mutable is not None:
+                    headers += [
+                        f"#include <ATen/ops/{g.mutable.root_name}_native.h>",
+                        f"#include <ATen/ops/{g.mutable.root_name}_ops.h>",
+                    ]
+                return headers
             else:
-                f = g
                 return [
-                    f"#include <ATen/ops/{f.root_name}_native.h>",
-                    f"#include <ATen/ops/{f.root_name}_ops.h>",
+                    f"#include <ATen/ops/{g.root_name}_native.h>",
+                    f"#include <ATen/ops/{g.root_name}_ops.h>",
                 ]
 
         return {
@@ -2162,11 +2299,6 @@ TORCH_LIBRARY_IMPL(aten, $dispatch_key, m) {
             "func_definitions": gen_functionalization_definition(
                 selector,
                 g,
-                # We need to manually map inplace ops to their out-of-place variants
-                # (we can't do this with NativeFunctionsGroup today because not all inplace ops have out= variants)
-                None
-                if isinstance(g, NativeFunctionsViewGroup)
-                else to_functional_op.get(g.func.name, None),
             ),
             "func_registrations": gen_functionalization_registration(
                 selector,
@@ -2175,9 +2307,30 @@ TORCH_LIBRARY_IMPL(aten, $dispatch_key, m) {
             ),
         }
 
+    all_groups: List[
+        Union[NativeFunction, NativeFunctionsGroup, NativeFunctionsViewGroup]
+    ] = list(structured_native_functions) + list(
+        view_groups  # type: ignore[assignment, arg-type, operator]
+    )
+    # Note: all operators that functionalization needs to handle (mutable and aliasing ops) should be grouped properly.
+    # The only reason we really need to deal with direct NativeFunctions here (instead of the groups) is because:
+    # (1) We can provide better error checking (error out if someone introduces a mutable op that doesn't obey the grouping logic)
+    # (2) functionalization needs to manually register CompositeImplicitAutograd kernels, which might not be grouped.
+    #     Although this could go away long-term if we add a dedicated dispatch key for decompositions.
+    structured_map: Dict[OperatorName, NativeFunction] = {
+        f.func.name: f
+        for f in concatMap(lambda g: list(g.functions()), structured_native_functions)
+    }
+    view_map: Dict[OperatorName, NativeFunction] = {
+        f.func.name: f for f in concatMap(lambda g: list(g.functions()), view_groups)
+    }
+    for f in native_functions:
+        if f.func.name not in structured_map and f.func.name not in view_map:
+            all_groups.append(f)
+
     cpu_fm.write_sharded(
         "RegisterFunctionalization.cpp",
-        native_functions_with_view_groups,
+        all_groups,
         key_fn=key_func,
         env_callable=functionalization_env_callable,
         num_shards=4,
@@ -2198,11 +2351,7 @@ TORCH_LIBRARY_IMPL(aten, $dispatch_key, m) {
                     lambda g: gen_functionalization_view_inverse_declaration(
                         selector, g
                     ),
-                    [
-                        g
-                        for g in native_functions_with_view_groups
-                        if isinstance(g, NativeFunctionsViewGroup)
-                    ],
+                    view_groups,
                 )
             )
         },
@@ -2234,17 +2383,23 @@ TORCH_LIBRARY_IMPL(aten, $dispatch_key, m) {
                         [g.view] if g.view_copy is None else [g.view, g.view_copy]
                     )
                 )
-                for g in native_functions_with_view_groups
-                if isinstance(g, NativeFunctionsViewGroup)
+                for g in view_groups
+            ]
+            + [
+                "\n".join(
+                    f"#include <ATen/ops/{f.root_name}_ops.h>"
+                    for f in [g.inplace, g.mutable]
+                    if f is not None and "generated" not in f.tags
+                )
+                for g in structured_native_functions
             ],
             "CompositeViewCopyKernel_Definitions": list(
+                mapMaybe(gen_composite_view_copy_kernel, view_groups)
+            ),
+            "GeneratedCompositeFunctional_Definitions": list(
                 mapMaybe(
-                    gen_composite_view_copy_kernel,
-                    [
-                        g
-                        for g in native_functions_with_view_groups
-                        if isinstance(g, NativeFunctionsViewGroup)
-                    ],
+                    gen_composite_functional_kernel,
+                    structured_native_functions,
                 )
             ),
         },
@@ -2361,6 +2516,11 @@ def main() -> None:
     native_functions_with_view_groups = get_grouped_by_view_native_functions(
         native_functions
     )
+    view_groups = [
+        g
+        for g in native_functions_with_view_groups
+        if isinstance(g, NativeFunctionsViewGroup)
+    ]
 
     template_dir = os.path.join(options.source_path, "templates")
 
@@ -2431,7 +2591,7 @@ def main() -> None:
             native_functions=native_functions,
             grouped_native_functions=grouped_native_functions,
             structured_native_functions=structured_native_functions,
-            native_functions_with_view_groups=native_functions_with_view_groups,
+            view_groups=view_groups,
             selector=selector,
             static_dispatch_idx=static_dispatch_idx,
             backend_indices=backend_indices,
