@@ -18,6 +18,16 @@ namespace native {
 
 constexpr int NUM_INPUTS = 8;
 
+#define AT_FOR_8_INPUTS_WITH_COMMA(_)  \
+  _(1)     ,                           \
+  _(2)     ,                           \
+  _(3)     ,                           \
+  _(4)     ,                           \
+  _(5)     ,                           \
+  _(6)     ,                           \
+  _(7)     ,                           \
+  _(8)
+
 #define AT_FOR_8_INPUTS(_)  \
   _(1)                      \
   _(2)                      \
@@ -80,9 +90,9 @@ static std::unique_ptr<OffsetCalculator<N>> make_unique_input_offset_calculator(
 }
 
 struct OffsetCalculatorVariant {
-#define DEFINE_CASE(index) std::unique_ptr<OffsetCalculator<index>>,
+#define DEFINE_CASE(index) std::unique_ptr<OffsetCalculator<index>>
   using OffsetCalculatorTypes = c10::variant<
-    AT_FOR_8_INPUTS(DEFINE_CASE)
+    AT_FOR_8_INPUTS_WITH_COMMA(DEFINE_CASE)
   >;
 #undef DEFINE_CASE
 
@@ -109,9 +119,9 @@ struct OffsetCalculatorVariant {
 
 struct ArrayVariant {
   // notice: This would produce c10::variant<at::detail::Array<char*, 2...9>>
-#define DEFINE_CASE(index) at::detail::Array<char*, index + 1>,
+#define DEFINE_CASE(index) at::detail::Array<char*, index + 1>
   using ArrayTypes = c10::variant<
-    AT_FOR_8_INPUTS(DEFINE_CASE)
+    AT_FOR_8_INPUTS_WITH_COMMA(DEFINE_CASE)
   >;
 #undef DEFINE_CASE
 
@@ -145,9 +155,9 @@ private:
 };
 
 struct TrivialOffsetCalculatorVariant {
-#define DEFINE_CASE(index) TrivialOffsetCalculator<index>,
+#define DEFINE_CASE(index) TrivialOffsetCalculator<index>
   using TrivialOffsetCalculatorTypes = c10::variant<
-    AT_FOR_8_INPUTS(DEFINE_CASE)
+    AT_FOR_8_INPUTS_WITH_COMMA(DEFINE_CASE)
   >;
 #undef DEFINE_CASE
 
@@ -174,9 +184,9 @@ private:
 };
 
 struct LoadWithCastVariant {
-#define DEFINE_CASE(index) std::unique_ptr<memory::LoadWithCast<index>>,
+#define DEFINE_CASE(index) std::unique_ptr<memory::LoadWithCast<index>>
   using LoadWithCastPtr = c10::variant<
-    AT_FOR_8_INPUTS(DEFINE_CASE)
+    AT_FOR_8_INPUTS_WITH_COMMA(DEFINE_CASE)
   >;
 #undef DEFINE_CASE
 
