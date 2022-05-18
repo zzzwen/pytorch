@@ -3283,7 +3283,7 @@ class TestNN(NNTestCase):
         parametrize.register_parametrization(model, "weight", MinusOne())
         hold_weight = model.weight
 
-        to_model = nn.qat.Linear(
+        to_model = torch.ao.nn.qat.Linear(
             5, 5, qconfig=torch.ao.quantization.get_default_qconfig()
         )
         parametrize.transfer_parametrizations_and_params(model, to_model)
@@ -3336,7 +3336,7 @@ class TestNN(NNTestCase):
         parametrize.register_parametrization(model, "weight", Double())
         hold_weight = model.weight
 
-        to_model = nn.qat.Linear(
+        to_model = torch.ao.nn.qat.Linear(
             5, 5, qconfig=torch.ao.quantization.get_default_qconfig()
         )
         parametrize.transfer_parametrizations_and_params(model, to_model)
@@ -3374,7 +3374,7 @@ class TestNN(NNTestCase):
         parametrize.register_parametrization(model, "bias", Double())
         parametrize.register_parametrization(model, "bias", MinusOne())
 
-        to_model = nn.qat.Linear(
+        to_model = torch.ao.nn.qat.Linear(
             5, 5, bias=True, qconfig=torch.ao.quantization.get_default_qconfig()
         )
         parametrize.transfer_parametrizations_and_params(model, to_model, "weight")
@@ -3413,7 +3413,7 @@ class TestNN(NNTestCase):
         parametrize.register_parametrization(model, "weight", Double())
         hold_weight = model.weight
 
-        to_model = nn.qat.Linear(
+        to_model = torch.ao.nn.qat.Linear(
             3, 3, qconfig=torch.ao.quantization.get_default_qconfig()
         )
 
