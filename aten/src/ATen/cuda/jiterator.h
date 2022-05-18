@@ -28,7 +28,7 @@ TORCH_CUDA_CPP_API at::Tensor CompileAndLaunchKernel(
   const std::string& kernel_name,
   const std::vector<at::Tensor>& tensors,
   const std::vector<at::Scalar>& extra_args) {
-    TORCH_CHECK(false, "Jiterator is not supported on ROCm");
+    TORCH_CHECK(false, "Jiterator is not supported");
   }
 }} // namespace at::cuda
 
