@@ -157,13 +157,21 @@ struct alignas(2) Half {
 
   Half() = default;
   inline __host__ __device__ Half(float value){
+#ifdef __HIPCC__
+    x = __float2half(value);
+#else
     asm("{  cvt.rn.f16.f32 %0, %1;}\n" : "=h"(x) : "f"(value));
+#endif
   }
   inline __host__ __device__ operator float() const{
+#ifdef __HIPCC__
+      return __half2float(x);
+#else
       float val;
       asm("{  cvt.f32.f16 %0, %1;}\n" : "=f"(val) : "h"(x)); // do we need const cast here?
       //asm("{  cvt.f32.f16 %0, %1;}\n" : "=f"(val) : "h"(__HALF_TO_CUS(x)));
       return val;
+#endif
   }
 
 };
@@ -212,9 +220,18 @@ struct alignas(2) BFloat16 {
   }
 
   inline __host__ __device__ operator float() const{
+#ifdef __HIPCC__
+    union
+    {
+        uint32_t int32;
+        float    fp32;
+    } u = {uint32_t(x) << 16};
+    return u.fp32;
+#else
     float val;
     asm("{ mov.b32 %0, {0,%1};}\n" : "=f"(val) : "h"(x)); //do we need const cast here?
     return val;
+#endif
   }
 
 };
@@ -546,7 +563,7 @@ const std::string jit_vectorized_code_template = R"ESCAPE(
       {
       constexpr int vec_size = ${vec_size};
       int remaining = N - block_work_size * blockIdx.x;
-      auto thread_idx = threadIdx.x;
+      int thread_idx = threadIdx.x;
       int idx = blockIdx.x;
       ${declare_load_arrays}
       ${declare_store_arrays}
