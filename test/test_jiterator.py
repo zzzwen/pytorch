@@ -22,7 +22,6 @@ def ref_fn(x, y, alpha=1, beta=1):
     return alpha * x + beta * y
 
 class TestPythonJiterator(TestCase):
-    @skipCUDAIfRocm
     @parametrize("shape_strides", [
         (([3, 3], [3, 1]), ([3, 3], [3, 1])),  # contiguous
     ])
@@ -61,7 +60,6 @@ class TestPythonJiterator(TestCase):
 
         self.assertEqual(expected, result)
 
-    @skipCUDAIfRocm
     @dtypes(torch.float, torch.double, torch.float16, torch.bfloat16)
     @parametrize("alpha", [-1, 2.0, None])
     @parametrize("beta", [3, -4.2, None])
@@ -81,7 +79,6 @@ class TestPythonJiterator(TestCase):
 
         self.assertEqual(expected, result)
 
-    @skipCUDAIfRocm
     def test_bool_extra_args(self, device):
         code_string = "template <typename T> T conditional(T x, T mask, bool is_train) { return is_train ? x * mask : x; }"
         jitted_fn = create_jit_fn(code_string, is_train=False)
@@ -96,7 +93,6 @@ class TestPythonJiterator(TestCase):
         result = jitted_fn(a, b, is_train=True)
         self.assertEqual(expected, result)
 
-    @skipCUDAIfRocm
     @parametrize("num_inputs", list(range(1, 9)))
     def test_various_num_inputs(self, num_inputs):
         inputs = []
@@ -116,7 +112,6 @@ class TestPythonJiterator(TestCase):
 
         self.assertEqual(expected, result)
 
-    @skipCUDAIfRocm
     @parametrize("code_string", [
         "template <typename T> T my _kernel(T x) { return x; }",
         "template <typename T> Tmy_kernel(T x) { return x; }",
