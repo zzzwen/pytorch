@@ -54,6 +54,7 @@ ALLOW_LIST = [
     ("aten::randperm", datetime.date(9999, 1, 1)),
     ("aten::gelu", datetime.date(2022, 3, 1)),
     ("aten::gelu_backward", datetime.date(2022, 3, 1)),
+    ("aten::_convolution", datetime.date(2022, 1, 31)),
     ("aten::cudnn_convolution_backward", datetime.date(2022, 1, 31)),
     ("aten::cudnn_convolution_backward_input", datetime.date(2022, 1, 31)),
     ("aten::cudnn_convolution_backward_weight", datetime.date(2022, 1, 31)),
