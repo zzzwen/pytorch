@@ -14,7 +14,7 @@ from torch.utils._mode_utils import no_dispatch
 from torch.fx.passes.shape_prop import _extract_tensor_metadata
 from contextlib import contextmanager
 
-from torch.utils._python_dispatch import push_torch_dispatch_mode, TorchDispatchMode
+from torch.utils._python_dispatch import TorchDispatchMode
 
 __all__ = ["ProxyTensor", "PythonKeyTracer", "dispatch_trace", "make_fx", "enable_strict"]
 aten = torch.ops.aten
@@ -159,7 +159,7 @@ def dispatch_trace(
 ) -> GraphModule:
     tracer = PythonKeyTracer()
     if trace_factory_functions:
-        with push_torch_dispatch_mode(functools.partial(ProxyTorchDispatchMode, tracer)):
+        with ProxyTorchDispatchMode(tracer):
             graph = tracer.trace(root, concrete_args)
     else:
         graph = tracer.trace(root, concrete_args)
