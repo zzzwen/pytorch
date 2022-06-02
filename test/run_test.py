@@ -81,6 +81,7 @@ def discover_tests(
         rc += extra_tests
     return sorted(rc)
 
+
 TESTS = discover_tests(
     blocklisted_patterns=[
         'ao',
@@ -413,7 +414,7 @@ def run_test(
         unittest_args = [arg if arg != "-f" else "-x" for arg in unittest_args]
     elif IS_IN_CI:
         # use the downloaded test cases configuration, not supported in pytest
-        unittest_args.extend(["--import-slow-tests", "--import-disabled-tests"])
+        unittest_args.extend(["--import-slow-tests", "--import-disabled-tests", "--run-parallel=2"])
 
     # Multiprocessing related tests cannot run with coverage.
     # Tracking issue: https://github.com/pytorch/pytorch/issues/50661
@@ -446,12 +447,12 @@ def test_cuda_primary_ctx(test_module, test_directory, options):
         test_module, test_directory, options, extra_unittest_args=["--subprocess"]
     )
 
+
 run_test_with_subprocess = functools.partial(run_test, extra_unittest_args=["--subprocess"])
 
 
 def get_run_test_with_subprocess_fn():
     return lambda test_module, test_directory, options: run_test_with_subprocess(test_module, test_directory, options)
-
 
 
 def _test_cpp_extensions_aot(test_directory, options, use_ninja):
@@ -617,6 +618,7 @@ CUSTOM_HANDLERS = {
     "distributed/rpc/test_share_memory": get_run_test_with_subprocess_fn(),
     "distributed/rpc/cuda/test_tensorpipe_agent": get_run_test_with_subprocess_fn(),
 }
+
 
 def parse_test_module(test):
     return test.split(".")[0]
