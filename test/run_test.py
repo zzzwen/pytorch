@@ -1053,8 +1053,6 @@ def main():
                 continue
             has_failed = True
             failure_messages.append(err_message)
-            if not options_clone.continue_through_error:
-                raise RuntimeError(err_message)
             print_to_stderr(err_message)
     finally:
         if options.coverage:
@@ -1069,7 +1067,7 @@ def main():
                 if not PYTORCH_COLLECT_COVERAGE:
                     cov.html_report()
 
-    if options.continue_through_error and has_failed:
+    if has_failed:
         for err in failure_messages:
             print_to_stderr(err)
         sys.exit(1)
