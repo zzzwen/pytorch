@@ -154,7 +154,7 @@ Participating in Online Discussions
 You can find active discussions happening on the `PyTorch Discussion
 Forums <https://discuss.pytorch.org/>`__  for users as well as the
 `PyTorch Dev Discussion Forums <https://dev-discuss.pytorch.org/>`__
-for developers and maintainers.
+for developers and maintainers for users.
 
 Submitting Pull Requests to Fix Open Issues
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
