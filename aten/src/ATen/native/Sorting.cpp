@@ -888,13 +888,20 @@ TORCH_IMPL_FUNC(sort_stable_out)
  bool descending,
  const Tensor& values,
  const Tensor& indices) {
-  values.copy_(self);
   // check if self is scalar
   if (self.dim() == 0 && self.numel() == 1) {
+    values.copy_(self);
     indices.zero_();
   } else {
-    dim = maybe_wrap_dim(dim, self.dim());
-    sort_stub(self.device().type(), self, values, indices, dim, descending, stable.value());
+    // compare on acc type for reduced precision
+    if (self.scalar_type() == kBFloat16) {
+      Tensor values_acc = self.toType(kFloat);
+      sort_stub(self.device().type(), self, values_acc, indices, dim, descending, stable.value());
+      values.copy_(values_acc);
+    } else {
+      values.copy_(self);
+      sort_stub(self.device().type(), self, values, indices, dim, descending, stable.value());
+    }
   }
 }
 
