@@ -16,6 +16,11 @@ from dataclasses import dataclass
 
 aten = torch.ops.aten
 
+def create_contiguous(shape):
+    strides = [1]
+    for dim in reversed(shape[:-1]):
+        strides.append(dim * strides[-1])
+    return list(reversed(strides))
 
 class ComplexInputException(Exception):
     pass
@@ -271,6 +276,7 @@ class FakeTensor(torch.Tensor):
 
     @classmethod
     def __torch_dispatch__(cls, func, types, args=(), kwargs=None):
+        print(func)
         # need to handle here to avoid infinite recursion
         # see [in_kernel_invocation]
         if func == torch.ops.prim.device.default:
@@ -279,6 +285,15 @@ class FakeTensor(torch.Tensor):
                 return torch.device("meta")
             else:
                 return args[0].fake_device
+
+        if func == torch.ops.aten.size.default:
+            return args[0].shape
+
+        if func == torch.ops.aten.dim.default:
+            return len(args[0].shape)
+
+        # if func == torch.ops.aten.stride:
+        #     return create_contiguous(args[0].shape)
 
         fake_mode = None
         for arg in itertools.chain(tree_flatten(args)[0], tree_flatten(kwargs)[0]):

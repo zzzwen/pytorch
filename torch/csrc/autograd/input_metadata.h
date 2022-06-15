@@ -6,6 +6,7 @@
 #include <c10/core/DeviceType.h>
 #include <c10/core/Stream.h>
 #include <c10/core/impl/DeviceGuardImplInterface.h>
+#include <iostream>
 
 #ifndef AT_PER_OPERATOR_HEADERS
 #include <ATen/Functions.h>
@@ -50,7 +51,7 @@ struct InputMetadata {
     return options_;
   }
 
-  at::IntArrayRef shape() const {
+  c10::IntArrayRef shape() const {
     return shape_;
   }
 
@@ -102,7 +103,7 @@ struct InputMetadata {
 
  private:
   const at::TensorOptions options_;
-  at::DimVector shape_;
+  c10::IntArrayRef shape_;
   c10::Stream stream_ = c10::Stream(c10::Stream::Default::DEFAULT, device());
   bool is_tensor_subclass_ = false;
 };

@@ -1116,6 +1116,8 @@
 - func: broadcast_to(Tensor(a) self, int[] size) -> Tensor(a)
   variants: function, method
 
+- func: broadcast_to.SymInt(Tensor(a) self, SymInt[] size) -> Tensor(a)
+
 - func: _sparse_broadcast_to(Tensor(a) self, int[] size) -> Tensor(a)
   variants: function
   dispatch:
@@ -2158,7 +2160,7 @@
   device_check: NoCheck
   device_guard: False
   dispatch:
-    CompositeExplicitAutograd: expand_symint
+    CompositeExplicitAutograd: expand
 
 - func: expand(Tensor(a) self, int[] size, *, bool implicit=False) -> Tensor(a)
   variants: method  # This is method-only to match the previous tensor API. In the future we could make this a function too.
