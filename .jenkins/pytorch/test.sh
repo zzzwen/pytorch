@@ -5,7 +5,7 @@
 # need to set it yourself.
 
 set -ex
-
+sudo apt-get install -y bc
 # shellcheck disable=SC2034
 COMPACT_JOB_NAME="${BUILD_ENVIRONMENT}"
 
