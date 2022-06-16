@@ -318,32 +318,6 @@ def to_real_dtype(dtype: torch.dtype):
 # perform the pointwise portion in opmath, but don't maintain it between the
 # pointwise portion and the reduction
 
-@register_decomposition(aten.l1_loss)
-def l1_loss(
-    self: Tensor, target: Tensor, reduction: int = Reduction.MEAN.value
-) -> Tensor:
-    loss = (self - target).abs()
-    # PyTorch semantics result in the output of l1_loss having the corresponding
-    # real dtype to self.  This may not happen without explicit casting if say
-    # self: complex64 and target: float64, which results in loss: float64
-    float_type = to_real_dtype(self.dtype)
-    return apply_loss_reduction(loss, reduction).to(float_type)
-
-
-@register_decomposition(aten.l1_loss_backward)
-@pw_cast_for_opmath
-def l1_loss_backward(
-    grad_output: Tensor,
-    self: Tensor,
-    target: Tensor,
-    reduction: int = Reduction.MEAN.value,
-):
-    sign = torch.sign(self - target)
-
-    norm = sign / self.numel() if reduction == Reduction.MEAN.value else sign
-    return grad_output * norm
-
-
 @register_decomposition(aten.mse_loss)
 @pw_cast_for_opmath
 def mse_loss(
@@ -688,7 +662,7 @@ def native_dropout(input: Tensor, p: float, train: Optional[bool]):
 @register_decomposition(aten._softmax)
 @pw_cast_for_opmath
 def _softmax(x: Tensor, dim: int, half_to_float: bool):
-    x_max = torch.max(x, dim, keepdim=True)[0]
+    x_max = torch.amax(x, dim, keepdim=True)
     unnormalized = torch.exp(x - x_max)
     return unnormalized / torch.sum(unnormalized, dim, keepdim=True)
 
@@ -697,7 +671,7 @@ def _softmax(x: Tensor, dim: int, half_to_float: bool):
 @register_decomposition(aten._log_softmax)
 @pw_cast_for_opmath
 def _log_softmax(x: Tensor, dim: int, half_to_float: bool):
-    x_max = torch.max(x, dim, keepdim=True)[0]
+    x_max = torch.amax(x, dim, keepdim=True)
     shifted = x - x_max
     shifted_logsumexp = torch.log(torch.sum(torch.exp(shifted), dim, keepdim=True))
     return shifted - shifted_logsumexp
@@ -1200,32 +1174,6 @@ def transpose_int(self: Tensor, dim0: int, dim1: int) -> Tensor:
     perm = list(range(self.dim()))
     perm[dim0], perm[dim1] = perm[dim1], perm[dim0]
     return torch.permute(self, perm)
-
-
-def check_stack_inputs(tensors: List[Tensor]):
-    entry_shape = tensors[0].shape
-    for i in range(1, len(tensors)):
-        assert tensors[i].shape == entry_shape, (f"stack expects each tensor to be equal size, but got {entry_shape} at entry 0"
-                                                 f"and {tensors[i].shape} at entry {i}")
-
-
-def get_stack_inputs(tensors: List[Tensor], dim: int):
-    check_stack_inputs(tensors)
-    return [t.unsqueeze(dim) for t in tensors]
-
-
-@register_decomposition(aten.stack.default)
-def stack(tensors: List[Tensor], dim: int = 0) -> Tensor:
-    assert len(tensors) > 0, "stack expects a non-empty TensorList"
-    wrapped_dim = utils.canonicalize_dim(tensors[0].dim() + 1, dim)
-    if wrapped_dim < tensors[0].dim() and not tensors[0].is_sparse:
-        check_stack_inputs(tensors)
-        result_sizes = list(tensors[0].shape)
-        result_sizes.insert(wrapped_dim, len(tensors))
-        out = torch.cat(tensors, wrapped_dim)
-        return out.view(result_sizes)
-    else:
-        return torch.cat(get_stack_inputs(tensors, wrapped_dim), dim)
 
 
 def _squeeze_multiple(self: Tensor, dims: List[int]) -> Tensor:
