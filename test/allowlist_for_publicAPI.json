@@ -2322,6 +2322,7 @@
     "List",
     "Optional",
     "TypeVar",
+    "Union",
     "WeightedQuantizedModule",
     "fuse_conv_bn_weights"
   ],
