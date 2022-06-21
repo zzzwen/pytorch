@@ -210,12 +210,16 @@ std::string toString(const ExtraFields<EventType::PyCall>& e) {
       e.callsite_.funcname_.str());
 }
 
-using torch::profiler::impl::kineto::KinetoActivityType;
 namespace {
-KinetoActivityType scopeToType(at::RecordScope scope) {
+auto cast_activity(const libkineto::ActivityType activity) {
+  return static_cast<torch::profiler::impl::kineto::ActivityTypeAlias>(
+      static_cast<int>(activity));
+}
+
+auto scopeToType(at::RecordScope scope) {
   return scope == at::RecordScope::USER_SCOPE
-      ? KinetoActivityType::USER_ANNOTATION
-      : KinetoActivityType::CPU_OP;
+      ? cast_activity(libkineto::ActivityType::USER_ANNOTATION)
+      : cast_activity(libkineto::ActivityType::CPU_OP);
 }
 } // namespace
 
@@ -230,9 +234,9 @@ DEFINE_VISITOR(
     kinetoType,
     scopeToType(e.scope_),
     scopeToType(e.scope_),
-    KinetoActivityType::CPU_INSTANT_EVENT,
-    KinetoActivityType::PYTHON_FUNCTION,
-    KinetoActivityType::PYTHON_FUNCTION);
+    cast_activity(libkineto::ActivityType::CPU_INSTANT_EVENT),
+    cast_activity(libkineto::ActivityType::PYTHON_FUNCTION),
+    cast_activity(libkineto::ActivityType::PYTHON_FUNCTION));
 DEFINE_VISITOR(correlationID, e.correlation_id_, 0, 0, 0, 0);
 DEFINE_VISITOR(
     endTimeNS,

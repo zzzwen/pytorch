@@ -12,6 +12,9 @@
 #undef USE_KINETO
 #endif
 
+#include <ActivityType.h>
+
+#include <c10/util/strong_type.h>
 #include <torch/csrc/Export.h>
 #include <torch/csrc/profiler/api.h>
 
@@ -58,13 +61,9 @@ using trace_t = DummyTraceBuffer;
 using interface_trace_t = DummyTraceBuffer;
 #endif // USE_KINETO
 
-// Subset of `libkineto::ActivityType` for `addCPUActivity`.
-enum class KinetoActivityType : uint8_t {
-  CPU_OP = 0,
-  CPU_INSTANT_EVENT,
-  USER_ANNOTATION,
-  PYTHON_FUNCTION
-};
+// Stores `libkineto::ActivityType`
+using ActivityTypeAlias =
+    strong::type<int, struct ActivityTypeAlias_, strong::convertible_to<int>>;
 
 using annotation_t = std::vector<std::pair<std::string, std::string>>;
 
@@ -77,7 +76,7 @@ struct TraceWrapper {
   // The caller is expected to hold a mutex when calling `addCPUActivity`.
   void addCPUActivity(
       const std::string& name,
-      const KinetoActivityType kineto_type,
+      const ActivityTypeAlias kineto_type,
       const DeviceAndResource device_and_resource,
       const uint64_t correlation_id,
       const int64_t start_time,
@@ -98,7 +97,7 @@ struct TraceWrapper {
 
 // Wraps libkineto::ActivityTraceInterface
 struct ActivityTraceWrapper {
-  explicit ActivityTraceWrapper(std::unique_ptr<interface_trace_t> trace);
+  explicit ActivityTraceWrapper(std::unique_ptr<interface_trace_t>&& trace);
   ActivityTraceWrapper() = default;
   ActivityTraceWrapper(ActivityTraceWrapper&&) = default;
   ActivityTraceWrapper(const ActivityTraceWrapper&) = delete;
