@@ -10,3 +10,5 @@ class TensorAPoT(torch.Tensor):
 
     def int_repr(self):
         raise NotImplementedError
+
+# test
