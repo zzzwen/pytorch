@@ -112,19 +112,6 @@ class APoTObserver(ObserverBase):
         return (self.gamma, quantization_levels, self.level_indices)
 
     def forward(self, x_orig):
-        r"""Records the running maximum of ``x``."""
-        max_val = self.max_val
-        return x_orig
+        pass
 
-    def quant_levels_visualization(self, obs_result, filename):
-        xs = [float(x) / 1000.0 for x in range(1000)]
-        ys = [apot_to_float(float_to_apot(x, obs_result[1], obs_result[2]),
-                            obs_result[1], obs_result[2]).item() for x in xs]
-
-        f = plt.figure(figsize=(15, 10))
-
-        plt.plot(xs, ys)
-        plt.title("APoT Quantization Plot")
-        plt.xlabel("Full Precision")
-        plt.ylabel("Quantized")
-        plt.show()
+# test1.1
