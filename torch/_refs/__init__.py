@@ -460,8 +460,8 @@ def floor(a):
 
 @_make_elementwise_unary_reference(ELEMENTWISE_TYPE_PROMOTION_KIND.DEFAULT)
 def frac(x: TensorLikeType) -> TensorLikeType:
-    trunc_x = mul(floor(abs(x)), sign(x))
-    return sub(x, trunc_x)
+    trunc_x = torch.floor(x.abs()) * torch.sign(x)
+    return x - trunc_x
 
 
 @_make_elementwise_unary_reference(
@@ -577,14 +577,17 @@ def logsumexp(
 def nan_to_num(
     a: TensorLikeType,
     *,
-    nan: Optional[NumberType] = 0.0,
-    posinf: Optional[NumberType] = None,
-    neginf: Optional[NumberType] = None,
+    nan: Optional[float] = 0.0,
+    posinf: Optional[float] = None,
+    neginf: Optional[float] = None,
 ) -> TensorLikeType:
     assert isinstance(a, TensorLike)
 
     if a.dtype == torch.bool:
         return clone(a)
+
+    if nan is None:
+        nan = 0.0
 
     if posinf is None:
         posinf = prims.maximum_value(a.dtype)
@@ -592,14 +595,14 @@ def nan_to_num(
     if neginf is None:
         neginf = prims.minimum_value(a.dtype)
 
-    result = where(isnan(a), nan, a)
+    result: Tensor = torch.where(torch.isnan(a), nan, a)
 
-    is_neg = signbit(a)
-    is_neginf = bitwise_and(isinf(a), is_neg)
-    result = where(is_neginf, neginf, result)
+    is_neg: Tensor = torch.signbit(a)
+    is_neginf = torch.isinf(a) & is_neg
+    result = torch.where(is_neginf, neginf, result)
 
-    is_posinf = bitwise_and(isinf(a), bitwise_not(is_neg))
-    result = where(is_posinf, posinf, result)
+    is_posinf: Tensor = torch.isinf(a) & (~is_neg)
+    result = torch.where(is_posinf, posinf, result)
     return result
 
 
@@ -2581,6 +2584,7 @@ def uniform(
     return prims.uniform(shape, low=low, high=high, dtype=dtype, device=device)
 
 
+@register_decomposition(torch.ops.aten.masked_fill)
 def masked_fill(a: TensorLikeType, mask: TensorLikeType, value: TensorOrNumberLikeType):
     python_type = utils.dtype_to_type(a.dtype)
     if isinstance(value, Number):
@@ -2608,10 +2612,10 @@ def masked_fill(a: TensorLikeType, mask: TensorLikeType, value: TensorOrNumberLi
     # Since `where` allows type-promotion,
     # cast value to correct type before passing to `where`
     if isinstance(value, Number):
-        return where(mask, python_type(value), a)
+        return torch.where(mask, python_type(value), a)
 
     assert isinstance(value, TensorLike)
-    return where(mask, prims.to_dtype(value, a.dtype), a)
+    return torch.where(mask, prims.to_dtype(value, a.dtype), a)
 
 
 # TODO: add OpInfo for torch.equal and refs.equal
