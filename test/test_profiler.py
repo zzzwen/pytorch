@@ -1180,6 +1180,13 @@ class TestProfiler(TestCase):
                 ]))
 
     def test_utils_compute_queue_depth(self):
+
+        def format_queue_depth(queue_depth_list, events):
+            res = ""
+            for data, event in zip(queue_depth_list, events):
+                res += f"{data.queue_depth} [{event.name()}]\n"
+            return res
+
         # We have to use Mock because time series data is too flakey to test
         @dataclass(frozen=True)
         class MockKinetoEvent():
@@ -1204,27 +1211,81 @@ class TestProfiler(TestCase):
             def device_type(self) -> DeviceType:
                 return self._device_type
 
+        @dataclass(frozen=True)
+        class MockProfilerEvent():
+            _name: str
+            id: int
+            start_time_ns: int
+            duration_time_ns: int
+            children = []
+            Parent = None
+
+            @property
+            def end_time_ns(self):
+                return self.start_time_ns + self.duration_time_ns
+
+            def name(self) -> str:
+                return self._name
+
         cuda_events = [
-            MockKinetoEvent("cudaLaunchKernel", 0, 100, 1, DeviceType.CPU),
-            MockKinetoEvent("cudaLaunchKernel", 101, 200, 2, DeviceType.CPU),
-            MockKinetoEvent("cudaLaunchKernel", 201, 300, 3, DeviceType.CPU),
-            MockKinetoEvent("Kernel", 300, 400, 1, DeviceType.CUDA),
-            MockKinetoEvent("Kernel", 401, 500, 2, DeviceType.CUDA),
-            MockKinetoEvent("Kernel", 501, 600, 3, DeviceType.CUDA)
+            MockKinetoEvent("cudaLaunchKernel", 400, 100, 1, DeviceType.CPU),
+            MockKinetoEvent("cudaLaunchKernel", 500, 100, 2, DeviceType.CPU),
+            MockKinetoEvent("cudaLaunchKernel", 600, 100, 3, DeviceType.CPU),
+            MockKinetoEvent("GPU", 700, 100, 1, DeviceType.CUDA),
+            MockKinetoEvent("GPU", 800, 100, 2, DeviceType.CUDA),
+            MockKinetoEvent("GPU", 900, 100, 3, DeviceType.CUDA)
         ]
+
+        cpu_events = [
+            MockProfilerEvent("CPU", 1, 0, 100000),
+            MockProfilerEvent("CPU", 2, 100001, 100000),
+            MockProfilerEvent("CPU", 3, 200001, 100000),
+            MockProfilerEvent("CPU", 4, 300001, 100000),
+            MockProfilerEvent("CPU", 5, 400001, 100000),
+            MockProfilerEvent("CPU", 6, 500001, 100000),
+            MockProfilerEvent("CPU", 7, 600001, 100000),
+            MockProfilerEvent("CPU", 8, 700001, 100000),
+            MockProfilerEvent("CPU", 9, 800001, 100000),
+            MockProfilerEvent("CPU", 10, 900001, 100000),
+            MockProfilerEvent("CPU", 11, 1000001, 100000),
+        ]
+
         profiler = unittest.mock.Mock()
         profiler.kineto_results = unittest.mock.Mock()
         profiler.kineto_results.events = unittest.mock.Mock(
             return_value=cuda_events)
         profiler.kineto_results.experimental_event_tree = unittest.mock.Mock(
-            return_value=[])
+            return_value=cpu_events)
         basic_evaluation = _utils.BasicEvaluation(profiler)
 
-        golden_queue_depth_list = [1, 2, 3, 2, 1, 0]
-        print(basic_evaluation.compute_queue_depth())
-        for entry, golden in zip(basic_evaluation.compute_queue_depth(),
-                                 golden_queue_depth_list):
-            self.assertTrue(entry.queue_depth == golden)
+        self.assertExpectedInline(
+            format_queue_depth(basic_evaluation.queue_depth_list,
+                               basic_evaluation.cuda_events), """\
+1 [cudaLaunchKernel]
+2 [cudaLaunchKernel]
+3 [cudaLaunchKernel]
+2 [GPU]
+1 [GPU]
+0 [GPU]
+""")
+
+        self.assertExpectedInline(
+            format_queue_depth([
+                basic_evaluation.metrics[k]
+                for k in basic_evaluation.event_keys
+            ], basic_evaluation.events), """\
+0 [CPU]
+0 [CPU]
+0 [CPU]
+0 [CPU]
+1 [CPU]
+2 [CPU]
+3 [CPU]
+2 [CPU]
+1 [CPU]
+0 [CPU]
+0 [CPU]
+""")
 
     def test_utils_compute_queue_depth_when_no_cuda_events(self):
         # For traces with only cpu events, we expect empty queue depth list
