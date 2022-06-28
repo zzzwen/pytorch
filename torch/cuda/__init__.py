@@ -86,7 +86,7 @@ def is_bf16_supported():
     r"""Returns a bool indicating if the current CUDA/ROCm device supports dtype bfloat16"""
     # Check for ROCm, if true return true, no ROCM_VERSION check required,
     # since it is supported on AMD GPU archs.
-    if torch.version.hip
+    if torch.version.hip:
         return True
 
     cu_vers = torch.version.cuda
