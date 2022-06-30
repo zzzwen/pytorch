@@ -1141,9 +1141,9 @@ class TestTorchTidyProfiler(TestCase):
             node.children[0].children[0].extra_fields,
             torch._C._autograd._ExtraFields_Allocation)
 
-    def test_tensor_sizes(self):
-        x = torch.ones(10, 10)
-        y = torch.ones(1, 10)
+    def test_tensor_sizes_strides(self):
+        x = torch.ones(10, 10).as_strided([4, 4], [12, 3])
+        y = torch.ones(4, 1)
 
         with profile(with_stack=True, profile_memory=True, record_shapes=True) as p:
             _ = x + y
@@ -1157,8 +1157,31 @@ class TestTorchTidyProfiler(TestCase):
             torch._C._autograd._ExtraFields_TorchOp)
 
         # The alpha scalar has a [] size
-        self.assertEqual(node.extra_fields.inputs.shapes, [[10, 10], [1, 10], []])
-        self.assertEqual(node.extra_fields.inputs.dtypes, ['float', 'float', 'Scalar'])
+        input_info = node.extra_fields.inputs
+        self.assertEqual(input_info.dtypes, ['float', 'float', 'Scalar'])
+        self.assertEqual(input_info.layouts, [torch.strided, torch.strided, None])
+        shape_info = [x.shape if x else None for x in input_info.tensor_metadata]
+        stride_info = [x.stride if x else None for x in input_info.tensor_metadata]
+        self.assertEqual(shape_info, [[4, 4], [4, 1], None])
+        self.assertEqual(stride_info, [[12, 3], [1, 1], None])
+
+    def test_scalar_ins(self):
+        x = torch.ones(5, 5)
+        alpha = 0.9
+
+        with profile(with_stack=True, profile_memory=True, record_shapes=True) as p:
+            _ = torch.add(x, 9.1, alpha=alpha)
+
+        nodes = p.profiler.kineto_results.experimental_event_tree()
+        node = find_node_with_name(nodes, "aten::add")
+        self.assertIsNotNone(node)
+
+        # The second argument to the add gets promotoed to a zerodim Tensor
+        input_info = node.extra_fields.inputs
+        self.assertEqual(input_info.dtypes, ['float', 'double', 'Scalar'])
+        shape_info = [x.shape if x else None for x in input_info.tensor_metadata]
+        self.assertEqual(shape_info, [[5, 5], [], None])
+        self.assertEqual(input_info.ivalues, [None, None, alpha])
 
 
 class TestExperimentalUtils(TestCase):

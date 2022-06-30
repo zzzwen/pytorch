@@ -43,9 +43,22 @@ struct TorchOpBasicFields {
   // Set in the exit callback.
   uint64_t end_tid_{0};
 };
+//c10::TensorImpl* UNSAFE_tensor_impl_ptr_;
+//c10::StorageImpl* UNSAFE_storage_impl_ptr_;
+
+
+struct TensorMetadata {
+  void* ptr_;
+  c10::ScalarType dtype_;
+  uint32_t dim_;
+  c10::impl::SizesAndStrides sizes_and_strides_;
+  c10::Layout layout_;
+  size_t unique_tensor_id_;
+};
 
 struct Inputs {
-  std::vector<std::vector<int64_t>> shapes_;
+  std::vector<c10::optional<TensorMetadata>> tensor_metadata_;
+  std::vector<c10::IValue> ivalues_;
   std::vector<std::string> dtypes_;
 };
 
@@ -262,11 +275,6 @@ class InputOutputEncoder final {
     TERMINATOR
   };
 
-  struct TensorMetadata {
-    void* ptr_;
-    c10::ScalarType dtype_;
-    uint32_t dim_;
-  };
 
   void push(const at::Tensor& t);
 
@@ -274,6 +282,8 @@ class InputOutputEncoder final {
   AppendOnlyList<TensorMetadata, IO_ENCODER_DEFAULT_BLOCK_SIZE>
       tensor_metadata_;
   AppendOnlyList<int64_t, IO_ENCODER_DEFAULT_BLOCK_SIZE> tensor_sizes_;
+  AppendOnlyList<int64_t, IO_ENCODER_DEFAULT_BLOCK_SIZE> tensor_strides_;
+  AppendOnlyList<c10::IValue, IO_ENCODER_DEFAULT_BLOCK_SIZE> ivalues_;
 };
 
 class RecordQueue;
