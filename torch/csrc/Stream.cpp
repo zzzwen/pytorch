@@ -107,7 +107,9 @@ PyTypeObject THPStreamType = {
 
 void THPStream_init(PyObject* module) {
   THPStreamClass = &THPStreamType;
+#if PY_VERSION_HEX < 0x030B0000
   Py_TYPE(&THPStreamType) = &PyType_Type;
+#endif
   if (PyType_Ready(&THPStreamType) < 0) {
     throw python_error();
   }

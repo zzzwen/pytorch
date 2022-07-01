@@ -573,6 +573,35 @@ static int THPVariable_clear(THPVariable* self) {
   return 0;
 }
 
+#if PY_VERSION_HEX >= 0x030B0000
+// Traverse and clear are required for supporting Python's GC cycle handling.
+static int THPFunction_traverse(THPFunction* self, visitproc visit, void* arg) {
+  // cdata could be null if the PyNode has already gone out of scope
+  // by the time we're GC'ing this THPFunction (e.g., the user saved grad_fn
+  // only).
+  //
+  // TODO: I'm not really sure if we're actually obligated to traverse PyObject
+  // that is stored in PyNode, since we don't really own that C++ object.
+  if (auto cdata = self->cdata.lock()) {
+    for (const auto& hook : cdata->pre_hooks()) {
+      if (auto pyhook = dynamic_cast<PyFunctionPreHook*>(hook.get())) {
+        Py_VISIT(pyhook->dict);
+      }
+    }
+    for (const auto& hook : cdata->post_hooks()) {
+      if (auto pyhook = dynamic_cast<PyFunctionPostHook*>(hook.get())) {
+        Py_VISIT(pyhook->dict);
+      }
+    }
+  }
+  Py_VISIT(self->to_save);
+  Py_VISIT(self->non_differentiable);
+  Py_VISIT(self->dirty_tensors);
+  Py_VISIT(self->saved_for_forward);
+  return 0;
+}
+#endif
+
 PyObject* THPVariable_pynew(
     PyTypeObject* type,
     PyObject* args,
@@ -1644,8 +1673,12 @@ PyTypeObject THPVariableType = {
     Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE |
         Py_TPFLAGS_HAVE_GC, /* tp_flags */
     nullptr, /* tp_doc */
-    // Also set by metaclass
+// Also set by metaclass
+#if PY_VERSION_HEX >= 0x030B0000
+    (traverseproc)THPFunction_traverse, /* tp_traverse */
+#else
     nullptr, /* tp_traverse */
+#endif
     (inquiry)THPVariable_clear, /* tp_clear */
     nullptr, /* tp_richcompare */
     0, /* tp_weaklistoffset */
@@ -1692,7 +1725,11 @@ static void clear_slots(PyTypeObject* type, PyObject* self) {
   PyMemberDef* mp;
 
   n = Py_SIZE(type);
+#if PY_VERSION_HEX >= 0x030B0000
+  mp = type->tp_members;
+#else
   mp = PyHeapType_GET_MEMBERS((PyHeapTypeObject*)type);
+#endif
   for (i = 0; i < n; i++, mp++) {
     if (mp->type == T_OBJECT_EX && !(mp->flags & READONLY)) {
       char* addr = (char*)self + mp->offset;
@@ -1904,7 +1941,11 @@ static int traverse_slots(
   PyMemberDef* mp;
 
   n = Py_SIZE(type);
+#if PY_VERSION_HEX >= 0x030B0000
+  mp = type->tp_members;
+#else
   mp = PyHeapType_GET_MEMBERS((PyHeapTypeObject*)type);
+#endif
   for (i = 0; i < n; i++, mp++) {
     if (mp->type == T_OBJECT_EX) {
       char* addr = (char*)self + mp->offset;
