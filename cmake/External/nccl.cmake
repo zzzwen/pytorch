@@ -44,7 +44,7 @@ if(NOT __NCCL_INCLUDED)
     string(REGEX REPLACE "GNU objcopy version ([0-9])\\.([0-9]+).*" "\\1" OBJCOPY_VERSION_MAJOR ${OBJCOPY_VERSION_STR})
     string(REGEX REPLACE "GNU objcopy version ([0-9])\\.([0-9]+).*" "\\2" OBJCOPY_VERSION_MINOR ${OBJCOPY_VERSION_STR})
 
-    if((${OBJCOPY_VERSION_MAJOR} GREATER 2) OR ((${OBJCOPY_VERSION_MAJOR} EQUAL 2) AND (${OBJCOPY_VERSION_MINOR} GREATER 27)))
+    if(FALSE)
       message(WARNING "Enabling NCCL library slimming")
       add_custom_command(
         OUTPUT "${__NCCL_BUILD_DIR}/lib/libnccl_slim_static.a"
