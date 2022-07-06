@@ -290,7 +290,7 @@ class FakeTensor(torch.Tensor):
 
     def __init__(self, fake_mode, elem, device: Union[torch.device, str]):
         # elem does not need to be recorded, because FakeTensor *is a* elem
-        assert elem.device.type == "meta"
+        assert elem.device.type == "meta", elem
         device = device if isinstance(device, torch.device) else torch.device(device)
         assert device.type != "meta"
         self.fake_device = device
@@ -426,6 +426,8 @@ class FakeTensorMode(TorchDispatchMode):
         # the device property
         self.in_kernel_invocation = False
 
+        super().__init__()
+
     def __torch_dispatch__(self, func, types, args=(), kwargs=None):
         kwargs = kwargs if kwargs else {}
 
@@ -481,7 +483,7 @@ class FakeTensorMode(TorchDispatchMode):
             if conversion_made:
                 raise Exception(
                     "Invoking operators with non-Fake Tensor inputs in FakeTensorMode is not yet supported. "
-                    f"Please convert all Tensors to FakeTensors first. Found in {func}"
+                    f"Please convert all Tensors to FakeTensors first. Found in {func}(*{args}, **{kwargs})"
                 )
 
             for run_impl_check, op_impl in op_implementations:
